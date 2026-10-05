@@ -1,0 +1,38 @@
+name: Build iOS IPA macos-13
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-13
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build unsigned .app
+        run: |
+          cd ios/VrotApp
+          xcodebuild clean build \
+            -project VrotApp.xcodeproj \
+            -scheme VrotApp \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CONFIGURATION_BUILD_DIR=build/Release-iphoneos
+
+      - name: Package into .ipa
+        run: |
+          cd ios/VrotApp
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/VrotApp.app Payload/
+          zip -r VrotApp.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrot-ipa-macos-13
+          path: ios/VrotApp/VrotApp.ipa
+          retention-days: 14
