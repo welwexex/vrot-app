@@ -175,261 +175,177 @@ struct ChatView: View {
             Theme.darkBg.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Liquid Glass Header
-                let name = friend["displayName"] as? String ?? (friend["username"] as? String ?? "Чат")
-                let friendId = friend["id"] as? String ?? ""
-                let avatarUrl = friend["avatarUrl"] as? String
+                chatHeader
 
-                HStack(spacing: 12) {
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .semibold))
+                messageList
+
+                chatInputSection
+            }
+
+            if showUserProfile {
+                UserProfileCardModal(user: friend, onDismiss: {
+                    showUserProfile = false
+                })
+                .transition(.opacity)
+            }
+        }
+        .onAppear(perform: loadMessages)
+        .onDisappear {
+            player.stop()
+        }
+    }
+
+    private var chatHeader: some View {
+        let name = friend["displayName"] as? String ?? (friend["username"] as? String ?? "Чат")
+        let friendId = friend["id"] as? String ?? ""
+        let avatarUrl = friend["avatarUrl"] as? String
+
+        return HStack(spacing: 12) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+
+            Button(action: { showUserProfile = true }) {
+                HStack(spacing: 10) {
+                    AvatarBadgeView(avatarUrl: avatarUrl, name: name, size: 38)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name)
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.white)
+                        Text("В сети")
+                            .font(.system(size: 11))
+                            .foregroundColor(Theme.green)
                     }
-
-                    Button(action: {
-                        showUserProfile = true
-                    }) {
-                        HStack(spacing: 10) {
-                            AvatarBadgeView(avatarUrl: avatarUrl, name: name, size: 38)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(name)
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.white)
-                                Text("В сети")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Theme.green)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Button(action: {
-                        CallManager.shared.startOutgoingCall(targetId: friendId, name: name, isVideo: false)
-                    }) {
-                        Image(systemName: "phone.fill")
-                            .foregroundColor(.white)
-                            .padding(9)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
-                    }
-
-                    Button(action: {
-                        CallManager.shared.startOutgoingCall(targetId: friendId, name: name, isVideo: true)
-                    }) {
-                        Image(systemName: "video.fill")
-                            .foregroundColor(.white)
-                            .padding(9)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(Color.white.opacity(0.08))
-                .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
-                .overlay(
-                    Rectangle()
-                        .frame(height: 1)
-                        .foregroundColor(Color.white.opacity(0.15)),
-                    alignment: .bottom
-                )
-
-                // Message List
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(0..<messages.count, id: \.self) { idx in
-                                let msg = messages[idx]
-                                let text = msg["content"] as? String ?? ""
-                                let author = msg["author"] as? [String: Any]
-                                let isMe = (author?["id"] as? String) != (friend["id"] as? String)
-                                let attachment = msg["attachment"] as? [String: Any]
-                                let msgId = msg["id"] as? String ?? "\(idx)"
-
-                                HStack {
-                                    if isMe { Spacer() }
-
-                                    VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
-                                        // Check if audio attachment
-                                        if let att = attachment,
-                                           let mime = att["mime"] as? String,
-                                           mime.hasPrefix("audio/"),
-                                           let attUrl = att["url"] as? String {
-                                            // Voice message player bubble with Liquid Glass
-                                            HStack(spacing: 10) {
-                                                Button(action: {
-                                                    player.togglePlay(attachmentUrl: attUrl, messageId: msgId)
-                                                }) {
-                                                    Image(systemName: (player.currentlyPlayingId == msgId && player.isPlaying) ? "pause.fill" : "play.fill")
-                                                        .font(.system(size: 16))
-                                                        .foregroundColor(.white)
-                                                        .padding(10)
-                                                        .background(isMe ? Color.white.opacity(0.25) : Theme.accent)
-                                                        .clipShape(Circle())
-                                                }
-
-                                                VStack(alignment: .leading, spacing: 4) {
-                                                    HStack {
-                                                        Image(systemName: "waveform")
-                                                            .font(.system(size: 13))
-                                                            .foregroundColor(.white.opacity(0.85))
-                                                        Text("Голосовое сообщение")
-                                                            .font(.system(size: 12, weight: .medium))
-                                                            .foregroundColor(.white)
-                                                    }
-
-                                                    if player.currentlyPlayingId == msgId {
-                                                        GeometryReader { geo in
-                                                            ZStack(alignment: .leading) {
-                                                                Rectangle()
-                                                                    .fill(Color.white.opacity(0.25))
-                                                                    .frame(height: 4)
-                                                                    .cornerRadius(2)
-                                                                Rectangle()
-                                                                    .fill(Color.white)
-                                                                    .frame(width: geo.size.width * CGFloat(player.progress), height: 4)
-                                                                    .cornerRadius(2)
-                                                            }
-                                                        }
-                                                        .frame(height: 4)
-                                                    }
-                                                }
-                                                .frame(minWidth: 140)
-                                            }
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 10)
-                                            .background(
-                                                isMe ?
-                                                LinearGradient(colors: [Theme.accent, Theme.accentGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                                : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                            )
-                                            .cornerRadius(18)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 18)
-                                                    .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
-                                            )
-                                        } else if !text.isEmpty {
-                                            // Text message bubble with Liquid Glass
-                                            Text(text)
-                                                .font(.system(size: 15))
-                                                .padding(.horizontal, 14)
-                                                .padding(.vertical, 10)
-                                                .background(
-                                                    isMe ?
-                                                    LinearGradient(colors: [Theme.accent, Theme.accentGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                                    : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                                )
-                                                .foregroundColor(.white)
-                                                .cornerRadius(18)
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 18)
-                                                        .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
-                                                )
-                                                .frame(maxWidth: 280, alignment: isMe ? .trailing : .leading)
-                                        }
-                                    }
-
-                                    if !isMe { Spacer() }
-                                }
-                                .id(idx)
-                            }
-                        }
-                        .padding(16)
-                    }
-                    .onChange(of: messages.count) { _ in
-                        if !messages.isEmpty {
-                            proxy.scrollTo(messages.count - 1)
-                        }
-                    }
-                }
-
-                // Recording banner or normal Liquid Glass input
-                if recorder.isRecording {
-                    HStack(spacing: 16) {
-                        Circle()
-                            .fill(Theme.red)
-                            .frame(width: 12, height: 12)
-
-                        Text(String(format: "Запись: %.1f сек", recorder.recordDuration))
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-
-                        Spacer()
-
-                        Button(action: {
-                            recorder.cancelRecording()
-                        }) {
-                            Text("Отмена")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(Theme.textSecondary)
-                        }
-
-                        Button(action: sendRecordedVoice) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(Theme.accent)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Color.white.opacity(0.08))
-                    .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
-                } else {
-                    // Liquid Glass Input Bar
-                    HStack(spacing: 10) {
-                        TextField("Сообщение…", text: $inputText)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(Color.white.opacity(0.08))
-                            .foregroundColor(.white)
-                            .cornerRadius(20)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                            )
-
-                        if inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            // Mic Button for voice message
-                            Button(action: {
-                                recorder.startRecording()
-                            }) {
-                                Image(systemName: "mic.fill")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(10)
-                                    .background(Color.white.opacity(0.12))
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
-                            }
-                        } else {
-                            Button(action: sendMessage) {
-                                Image(systemName: "paperplane.fill")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(10)
-                                    .background(Theme.accent)
-                                    .clipShape(Circle())
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.08))
-                    .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
-                    .overlay(
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(Color.white.opacity(0.15)),
-                        alignment: .top
-                    )
                 }
             }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button(action: {
+                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, isVideo: false)
+            }) {
+                Image(systemName: "phone.fill")
+                    .foregroundColor(.white)
+                    .padding(9)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+            }
+
+            Button(action: {
+                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, isVideo: true)
+            }) {
+                Image(systemName: "video.fill")
+                    .foregroundColor(.white)
+                    .padding(9)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(0.08))
+        .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(Color.white.opacity(0.15)),
+            alignment: .bottom
+        )
+    }
+
+    private var messageList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(0..<messages.count, id: \.self) { idx in
+                        let msg = messages[idx]
+                        let author = msg["author"] as? [String: Any]
+                        let isMe = (author?["id"] as? String) != (friend["id"] as? String)
+                        ChatMessageItemView(msg: msg, idx: idx, isMe: isMe, player: player)
+                            .id(idx)
+                    }
+                }
+                .padding(16)
+            }
+            .onChange(of: messages.count) { _ in
+                if !messages.isEmpty {
+                    proxy.scrollTo(messages.count - 1)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var chatInputSection: some View {
+        if recorder.isRecording {
+            HStack(spacing: 16) {
+                Circle().fill(Theme.red).frame(width: 12, height: 12)
+                Text(String(format: "Запись: %.1f сек", recorder.recordDuration))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { recorder.cancelRecording() }) {
+                    Text("Отмена").font(.system(size: 14, weight: .medium)).foregroundColor(Theme.textSecondary)
+                }
+                Button(action: sendRecordedVoice) {
+                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).foregroundColor(Theme.accent)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color.white.opacity(0.08))
+            .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
+        } else {
+            HStack(spacing: 10) {
+                TextField("Сообщение…", text: $inputText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.08))
+                    .foregroundColor(.white)
+                    .cornerRadius(20)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    )
+
+                if inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button(action: { recorder.startRecording() }) {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.white.opacity(0.12))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                    }
+                } else {
+                    Button(action: sendMessage) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Theme.accent)
+                            .clipShape(Circle())
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.white.opacity(0.08))
+            .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
+            .overlay(
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(Color.white.opacity(0.15)),
+                alignment: .top
+            )
+        }
+    }
 
             // User Profile Modal Sheet Overlay
             if showUserProfile {
@@ -513,6 +429,103 @@ struct ChatView: View {
             } catch {
                 print("Failed to send voice message: \(error)")
             }
+        }
+    }
+}
+
+struct ChatMessageItemView: View {
+    let msg: [String: Any]
+    let idx: Int
+    let isMe: Bool
+    @ObservedObject var player: AudioPlayerManager
+
+    var body: some View {
+        let text = msg["content"] as? String ?? ""
+        let attachment = msg["attachment"] as? [String: Any]
+        let msgId = msg["id"] as? String ?? "\(idx)"
+
+        HStack {
+            if isMe { Spacer() }
+
+            VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
+                if let att = attachment,
+                   let mime = att["mime"] as? String,
+                   mime.hasPrefix("audio/"),
+                   let attUrl = att["url"] as? String {
+                    // Voice message bubble
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            player.togglePlay(attachmentUrl: attUrl, messageId: msgId)
+                        }) {
+                            Image(systemName: (player.currentlyPlayingId == msgId && player.isPlaying) ? "pause.fill" : "play.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(isMe ? Color.white.opacity(0.25) : Theme.accent)
+                                .clipShape(Circle())
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.85))
+                                Text("Голосовое сообщение")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.white)
+                            }
+
+                            if player.currentlyPlayingId == msgId {
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Rectangle()
+                                            .fill(Color.white.opacity(0.25))
+                                            .frame(height: 4)
+                                            .cornerRadius(2)
+                                        Rectangle()
+                                            .fill(Color.white)
+                                            .frame(width: geo.size.width * CGFloat(player.progress), height: 4)
+                                            .cornerRadius(2)
+                                    }
+                                }
+                                .frame(height: 4)
+                            }
+                        }
+                        .frame(minWidth: 140)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        isMe ?
+                        LinearGradient(colors: [Theme.accent, Theme.accentGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                    .cornerRadius(18)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
+                    )
+                } else if !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 15))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            isMe ?
+                            LinearGradient(colors: [Theme.accent, Theme.accentGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        )
+                        .foregroundColor(.white)
+                        .cornerRadius(18)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18)
+                                .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
+                        )
+                        .frame(maxWidth: 280, alignment: isMe ? .trailing : .leading)
+                }
+            }
+
+            if !isMe { Spacer() }
         }
     }
 }
