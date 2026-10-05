@@ -107,6 +107,10 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                     CallManager.shared.reportIncomingCall(friendId: friendId, callerName: name, isVideo: isVideo)
                     CallManager.shared.sendLocalNotification(title: "Входящий вызов", body: "\(name) звонит вам в VROT")
 
+                case "call:peer-joined":
+                    CallManager.shared.state.status = "Идёт разговор"
+                    CallManager.shared.cancelTimeout()
+
                 case "call:peer-left", "call:cancelled":
                     CallManager.shared.state.status = "Собеседник завершил вызов"
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
@@ -136,6 +140,24 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
         webSocketTask?.send(.string(packet)) { error in
             if let error = error {
                 print("Failed to send call invite packet: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func sendCallJoin(friendId: String) {
+        let packet = "42[\"call:join\",{\"kind\":\"friend\",\"id\":\"\(friendId)\"}]"
+        webSocketTask?.send(.string(packet)) { error in
+            if let error = error {
+                print("Failed to send call join packet: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func sendCallLeave() {
+        let packet = "42[\"call:leave\"]"
+        webSocketTask?.send(.string(packet)) { error in
+            if let error = error {
+                print("Failed to send call leave packet: \(error.localizedDescription)")
             }
         }
     }
