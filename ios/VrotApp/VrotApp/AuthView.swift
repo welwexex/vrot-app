@@ -170,12 +170,21 @@ struct CustomTextField: View {
     @Binding var text: String
 
     var body: some View {
-        TextField(placeholder, text: $text)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Theme.card)
-            .foregroundColor(.white)
-            .cornerRadius(10)
+        ZStack(alignment: .leading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, 14)
+            }
+            TextField("", text: $text)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .foregroundColor(.white)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+        }
+        .background(Theme.card)
+        .cornerRadius(10)
     }
 }
 
@@ -184,11 +193,20 @@ struct CustomSecureField: View {
     @Binding var text: String
 
     var body: some View {
-        SecureField(placeholder, text: $text)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Theme.card)
-            .foregroundColor(.white)
-            .cornerRadius(10)
+        ZStack(alignment: .leading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, 14)
+            }
+            SecureField("", text: $text)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .foregroundColor(.white)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+        }
+        .background(Theme.card)
+        .cornerRadius(10)
     }
 }

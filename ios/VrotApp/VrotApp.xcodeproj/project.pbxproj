@@ -15,6 +15,7 @@
 		A10000062E93400000000006 /* MainTabsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000062E93400000000006 /* MainTabsView.swift */; };
 		A10000072E93400000000007 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000072E93400000000007 /* ChatView.swift */; };
 		A10000082E93400000000008 /* ActiveCallOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000082E93400000000008 /* ActiveCallOverlay.swift */; };
+		A10000112E93400000000011 /* CommunityDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000112E93400000000011 /* CommunityDetailView.swift */; };
 		A10000092E93400000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000092E93400000000009 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +29,7 @@
 		B10000062E93400000000006 /* MainTabsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabsView.swift; sourceTree = "<group>"; };
 		B10000072E93400000000007 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		B10000082E93400000000008 /* ActiveCallOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveCallOverlay.swift; sourceTree = "<group>"; };
+		B10000112E93400000000011 /* CommunityDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityDetailView.swift; sourceTree = "<group>"; };
 		B10000092E93400000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10000102E93400000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -62,6 +64,7 @@
 				B10000062E93400000000006 /* MainTabsView.swift */,
 				B10000072E93400000000007 /* ChatView.swift */,
 				B10000082E93400000000008 /* ActiveCallOverlay.swift */,
+				B10000112E93400000000011 /* CommunityDetailView.swift */,
 				B10000092E93400000000009 /* Assets.xcassets */,
 				B10000102E93400000000010 /* Info.plist */,
 			);
@@ -153,6 +156,7 @@
 				A10000062E93400000000006 /* MainTabsView.swift in Sources */,
 				A10000072E93400000000007 /* ChatView.swift in Sources */,
 				A10000082E93400000000008 /* ActiveCallOverlay.swift in Sources */,
+				A10000112E93400000000011 /* CommunityDetailView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

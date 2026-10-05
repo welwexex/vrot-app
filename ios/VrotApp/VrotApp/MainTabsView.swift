@@ -7,6 +7,7 @@ struct MainTabsView: View {
     @State private var communities: [[String: Any]] = []
     @State private var currentUser: [String: Any] = [:]
     @State private var activeChatFriend: [String: Any]?
+    @State private var activeCommunity: [String: Any]?
     @State private var isLoading = true
 
     var body: some View {
@@ -15,6 +16,8 @@ struct MainTabsView: View {
 
             if let friend = activeChatFriend {
                 ChatView(friend: friend, onBack: { activeChatFriend = nil })
+            } else if let comm = activeCommunity {
+                CommunityDetailView(community: comm, onBack: { activeCommunity = nil })
             } else {
                 VStack(spacing: 0) {
                     // Content
@@ -28,8 +31,12 @@ struct MainTabsView: View {
                         })
                         .tag(0)
 
-                        CommunitiesTabView(communities: communities)
-                            .tag(1)
+                        CommunitiesTabView(communities: communities, onSelectCommunity: { comm in
+                            activeCommunity = comm
+                        }, onCommunityCreated: {
+                            loadData()
+                        })
+                        .tag(1)
 
                         ProfileTabView(user: currentUser, onLogout: logout)
                             .tag(2)
@@ -194,14 +201,32 @@ struct FriendsTabView: View {
 
 struct CommunitiesTabView: View {
     let communities: [[String: Any]]
+    let onSelectCommunity: ([String: Any]) -> Void
+    let onCommunityCreated: () -> Void
+
+    @State private var showCreateCommunity = false
+    @State private var newName = ""
+    @State private var newDesc = ""
+    @State private var isCreating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Сообщества")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
+            HStack {
+                Text("Сообщества")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: { showCreateCommunity = true }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Theme.accent)
+                        .padding(8)
+                        .background(Theme.card)
+                        .clipShape(Circle())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
 
             if communities.isEmpty {
                 VStack(spacing: 8) {
@@ -244,8 +269,62 @@ struct CommunitiesTabView: View {
                     }
                     .padding(.vertical, 4)
                     .listRowBackground(Theme.darkBg)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onSelectCommunity(comm)
+                    }
                 }
                 .listStyle(.plain)
+            }
+        }
+        .sheet(isPresented: $showCreateCommunity) {
+            ZStack {
+                Theme.surface.ignoresSafeArea()
+                VStack(spacing: 20) {
+                    Text("Создать сообщество")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+
+                    CustomTextField(placeholder: "Название", text: $newName)
+                    CustomTextField(placeholder: "Описание (необязательно)", text: $newDesc)
+
+                    Button(action: {
+                        isCreating = true
+                        Task {
+                            do {
+                                _ = try await ApiService.shared.post(path: "/api/communities", body: [
+                                    "name": newName.trimmingCharacters(in: .whitespaces),
+                                    "description": newDesc.trimmingCharacters(in: .whitespaces)
+                                ])
+                                await MainActor.run {
+                                    isCreating = false
+                                    showCreateCommunity = false
+                                    newName = ""
+                                    newDesc = ""
+                                    onCommunityCreated()
+                                }
+                            } catch {
+                                await MainActor.run { isCreating = false }
+                            }
+                        }
+                    }) {
+                        if isCreating {
+                            ProgressView()
+                        } else {
+                            Text("Создать")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Theme.accent)
+                    .cornerRadius(10)
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+
+                    Spacer()
+                }
+                .padding(24)
             }
         }
     }

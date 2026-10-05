@@ -32,30 +32,43 @@ enum APIError: LocalizedError {
     }
 }
 
-final class ApiService {
+final class ApiService: NSObject, URLSessionDelegate {
     static let shared = ApiService()
-    let baseURL = "https://vrot.fun"
+    let baseURL = "https://api.vrot.fun"
 
-    private let session: URLSession
+    private var session: URLSession!
 
-    init() {
+    override init() {
+        super.init()
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 30
-        self.session = URLSession(configuration: config)
+        self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }
+
+    // Bypass any clock-skew / self-signed / Let's Encrypt renewal lag
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let serverTrust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
     }
 
     func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Any {
         guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
         var req = URLRequest(url: url)
         req.httpMethod = method
+        req.setValue("https://vrot.fun", forHTTPHeaderField: "Origin")
+        req.setValue("VrotApp-iOS/1.0", forHTTPHeaderField: "User-Agent")
 
         if let cookie = SessionStore.shared.cookie() {
             req.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
         if let body = body {
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 

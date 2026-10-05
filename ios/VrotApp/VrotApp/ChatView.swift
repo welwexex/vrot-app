@@ -131,7 +131,7 @@ struct ChatView: View {
         guard let id = friend["id"] as? String else { return }
         Task {
             do {
-                let msgs = try await ApiService.shared.getArray(path: "/api/direct/\(id)/messages")
+                let msgs = try await ApiService.shared.getArray(path: "/api/friends/\(id)/messages")
                 await MainActor.run {
                     self.messages = msgs
                     self.isLoading = false
@@ -156,7 +156,7 @@ struct ChatView: View {
 
         Task {
             do {
-                let sent = try await ApiService.shared.post(path: "/api/direct/\(id)/messages", body: ["content": text])
+                let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": text])
                 await MainActor.run {
                     self.messages.append(sent)
                 }
