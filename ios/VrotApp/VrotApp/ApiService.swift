@@ -4,20 +4,38 @@ import Security
 final class SessionStore {
     static let shared = SessionStore()
     private let key = "vrot_session_cookie"
+    private var query: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: "fun.vrot.ios",
+         kSecAttrAccount as String: key]
+    }
 
     func save(cookie: String) {
-        UserDefaults.standard.set(cookie, forKey: key)
+        SecItemDelete(query as CFDictionary)
+        var attributes = query
+        attributes[kSecValueData as String] = Data(cookie.utf8)
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        if status == errSecSuccess { UserDefaults.standard.removeObject(forKey: key) }
     }
 
     func cookie() -> String? {
+        var lookup = query
+        lookup[kSecReturnData as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        if SecItemCopyMatching(lookup as CFDictionary, &result) == errSecSuccess,
+           let data = result as? Data,
+           let saved = String(data: data, encoding: .utf8) { return saved }
         if let saved = UserDefaults.standard.string(forKey: key), !saved.isEmpty {
+            save(cookie: saved)
             return saved
         }
         if let cookies = HTTPCookieStorage.shared.cookies {
             for c in cookies {
                 if c.name == "vrot_session" {
                     let formatted = "\(c.name)=\(c.value)"
-                    UserDefaults.standard.set(formatted, forKey: key)
+                    save(cookie: formatted)
                     return formatted
                 }
             }
@@ -26,6 +44,7 @@ final class SessionStore {
     }
 
     func clear() {
+        SecItemDelete(query as CFDictionary)
         UserDefaults.standard.removeObject(forKey: key)
         if let cookies = HTTPCookieStorage.shared.cookies {
             for c in cookies {
