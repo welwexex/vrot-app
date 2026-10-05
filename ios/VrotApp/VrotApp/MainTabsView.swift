@@ -1137,6 +1137,11 @@ struct ProfileTabView: View {
                                 .foregroundColor(Theme.textPrimary)
                                 .padding(.top, 4)
                         }
+                        if let role = user["adminRole"] as? String, role != "user" {
+                            Label(role == "owner" ? "Основатель VROT" : (role == "moderator" ? "Модератор VROT" : "Администратор VROT"), systemImage: "shield.lefthalf.filled")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Theme.accent)
+                        }
                     }
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1595,7 +1600,7 @@ struct UserProfileCardModal: View {
                             .padding(.top, 4)
                     }
                     if let adminRole = profile["adminRole"] as? String, adminRole != "user" {
-                        Label(adminRole == "founder" ? "Основатель VROT" : "Администратор VROT", systemImage: "shield.lefthalf.filled")
+                        Label(adminRole == "owner" ? "Основатель VROT" : (adminRole == "moderator" ? "Модератор VROT" : "Администратор VROT"), systemImage: "shield.lefthalf.filled")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(Theme.accent)
                     }
