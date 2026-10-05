@@ -101,7 +101,7 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
             return
         }
 
-        if text == "40" {
+        if text.hasPrefix("40") {
             isReady = true
             for packet in pendingPackets { webSocketTask?.send(.string(packet)) { _ in } }
             pendingPackets.removeAll()

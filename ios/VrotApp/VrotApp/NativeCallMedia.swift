@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import SwiftUI
 import WebRTC
+import ReplayKit
 
 struct RemoteCallVideo: Identifiable {
     let id: String
@@ -35,10 +36,13 @@ final class NativeCallMedia: ObservableObject {
     @Published private(set) var localVideoTrack: RTCVideoTrack?
     @Published private(set) var connectedPeers = 0
     @Published private(set) var errorMessage = ""
+    @Published private(set) var isScreenSharing = false
 
     private let factory: RTCPeerConnectionFactory
     private var audioTrack: RTCAudioTrack?
     private var videoCapturer: RTCCameraVideoCapturer?
+    private var videoSource: RTCVideoSource?
+    private var cameraEnabled = false
     private var peers: [String: RTCPeerConnection] = [:]
     private var delegates: [String: NativePeerDelegate] = [:]
     private var pendingCandidates: [String: [RTCIceCandidate]] = [:]
@@ -93,12 +97,15 @@ final class NativeCallMedia: ObservableObject {
     private func prepareTracks(video: Bool) {
         let source = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
         audioTrack = factory.audioTrack(with: source, trackId: "vrot-audio")
+        let videoSource = factory.videoSource()
+        self.videoSource = videoSource
+        let track = factory.videoTrack(with: videoSource, trackId: "vrot-video")
+        localVideoTrack = track
+        track.isEnabled = video
+        let capturer = RTCCameraVideoCapturer(delegate: videoSource)
+        videoCapturer = capturer
+        cameraEnabled = video
         if video {
-            let videoSource = factory.videoSource()
-            let track = factory.videoTrack(with: videoSource, trackId: "vrot-video")
-            localVideoTrack = track
-            let capturer = RTCCameraVideoCapturer(delegate: videoSource)
-            videoCapturer = capturer
             if let camera = RTCCameraVideoCapturer.captureDevices().first(where: { $0.position == .front }),
                let format = RTCCameraVideoCapturer.supportedFormats(for: camera).first(where: {
                    CMVideoFormatDescriptionGetDimensions($0.formatDescription).width >= 640
@@ -221,7 +228,45 @@ final class NativeCallMedia: ObservableObject {
     }
 
     func setMuted(_ muted: Bool) { audioTrack?.isEnabled = !muted }
-    func setVideoEnabled(_ enabled: Bool) { localVideoTrack?.isEnabled = enabled }
+    func setVideoEnabled(_ enabled: Bool) {
+        cameraEnabled = enabled
+        guard !isScreenSharing else { return }
+        localVideoTrack?.isEnabled = enabled
+        if enabled, let capturer = videoCapturer,
+           let camera = RTCCameraVideoCapturer.captureDevices().first(where: { $0.position == .front }),
+           let format = RTCCameraVideoCapturer.supportedFormats(for: camera).first {
+            capturer.startCapture(with: camera, format: format, fps: 24)
+        } else if !enabled { videoCapturer?.stopCapture() }
+    }
+
+    func startScreenShare() {
+        guard active, !isScreenSharing, let source = videoSource, let capturer = videoCapturer else { return }
+        videoCapturer?.stopCapture()
+        RPScreenRecorder.shared().startCapture(handler: { [weak self] buffer, kind, error in
+            if let error { self?.report(error); return }
+            guard kind == .video, let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
+            let stamp = Int64(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer)) * 1_000_000_000)
+            let frame = RTCVideoFrame(buffer: RTCCVPixelBuffer(pixelBuffer: pixelBuffer), rotation: ._0, timeStampNs: stamp)
+            source.capturer(capturer, didCapture: frame)
+        }, completionHandler: { [weak self] error in
+            DispatchQueue.main.async {
+                if let error { self?.report(error); return }
+                self?.isScreenSharing = true
+                self?.localVideoTrack?.isEnabled = true
+            }
+        })
+    }
+
+    func stopScreenShare() {
+        guard isScreenSharing else { return }
+        RPScreenRecorder.shared().stopCapture { [weak self] error in
+            if let error { self?.report(error) }
+            DispatchQueue.main.async {
+                self?.isScreenSharing = false
+                self?.setVideoEnabled(self?.cameraEnabled ?? false)
+            }
+        }
+    }
 
     func stop() {
         active = false
@@ -229,8 +274,11 @@ final class NativeCallMedia: ObservableObject {
         peers.removeAll()
         delegates.removeAll()
         pendingCandidates.removeAll()
+        if isScreenSharing { RPScreenRecorder.shared().stopCapture { _ in } }
+        isScreenSharing = false
         videoCapturer?.stopCapture()
         videoCapturer = nil
+        videoSource = nil
         localVideoTrack = nil
         audioTrack = nil
         remoteVideos = []

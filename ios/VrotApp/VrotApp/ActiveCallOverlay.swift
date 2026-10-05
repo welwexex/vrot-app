@@ -174,6 +174,19 @@ struct ActiveCallOverlay: View {
                         }
                     }
 
+                    Button(action: {
+                        if media.isScreenSharing { media.stopScreenShare() }
+                        else { media.startScreenShare() }
+                    }) {
+                        Image(systemName: media.isScreenSharing ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle")
+                            .font(.system(size: 22))
+                            .foregroundColor(.white)
+                            .frame(width: 64, height: 64)
+                            .background(media.isScreenSharing ? Theme.accent : Theme.card.opacity(0.85))
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel(media.isScreenSharing ? "Остановить показ экрана VROT" : "Показать экран VROT")
+
                     // End Call
                     Button(action: {
                         callManager.endCall()
@@ -186,6 +199,9 @@ struct ActiveCallOverlay: View {
                             .clipShape(Circle())
                     }
                 }
+                Text("Показ экрана доступен внутри VROT")
+                    .font(.caption2)
+                    .foregroundColor(Theme.textSecondary)
                 .padding(.bottom, 50)
             }
         }

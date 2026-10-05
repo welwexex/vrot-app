@@ -1042,6 +1042,7 @@ struct ProfileTabView: View {
     @AppStorage("vrot_language") private var appLanguage = "ru"
 
     @State private var showSettingsModal = false
+    @State private var settingsSection = "profile"
     @State private var displayName = ""
     @State private var bio = ""
     @State private var selectedStatus = "online"
@@ -1140,13 +1141,7 @@ struct ProfileTabView: View {
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .background(Color.white.opacity(0.06))
-                .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
-                .cornerRadius(20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
+                .modifier(VrotGlassBar())
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
 
@@ -1176,7 +1171,7 @@ struct ProfileTabView: View {
                             Image(systemName: "person.crop.circle.badge.checkmark")
                                 .font(.system(size: 18))
                                 .foregroundColor(Theme.accent)
-                            Text("Редактировать аватар, шапку и статус")
+                            Text("Редактировать профиль и настройки")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundColor(Theme.textPrimary)
                             Spacer()
@@ -1221,6 +1216,20 @@ struct ProfileTabView: View {
                             .foregroundColor(Theme.textPrimary)
                             .padding(.top, 10)
 
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach([("profile", "Профиль"), ("appearance", "Оформление"), ("security", "Безопасность"), ("app", "Приложение")], id: \.0) { item in
+                                    Button(item.1) { settingsSection = item.0 }
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(settingsSection == item.0 ? .white : Theme.textSecondary)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(settingsSection == item.0 ? Theme.accent : Theme.card, in: Capsule())
+                                }
+                            }
+                        }
+
+                        if settingsSection == "app" {
                         Picker(L("Тема"), selection: $appTheme) {
                             Text(L("Тёмная")).tag("dark")
                             Text(L("Светлая")).tag("light")
@@ -1231,7 +1240,9 @@ struct ProfileTabView: View {
                             Text(L("Английский")).tag("en")
                         }
                         .pickerStyle(.segmented)
+                        }
 
+                        if settingsSection == "appearance" {
                         // Avatar & Banner upload row
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Оформление")
@@ -1273,7 +1284,9 @@ struct ProfileTabView: View {
                                 }
                             }
                         }
+                        }
 
+                        if settingsSection == "profile" {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Отображаемое имя")
                                 .font(.system(size: 13, weight: .medium))
@@ -1309,7 +1322,9 @@ struct ProfileTabView: View {
                                 }
                             }
                         }
+                        }
 
+                        if settingsSection == "security" {
                         Divider().background(Theme.card).padding(.vertical, 8)
 
                         Text("Смена пароля (необязательно)")
@@ -1318,23 +1333,33 @@ struct ProfileTabView: View {
 
                         CustomSecureField(placeholder: "Текущий пароль", text: $currentPassword)
                         CustomSecureField(placeholder: "Новый пароль (мин. 12 симв.)", text: $newPassword)
-
-                        Button(action: saveSettings) {
-                            if isSaving {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Text("Сохранить изменения")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(Theme.textPrimary)
-                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
+
+                        if settingsSection == "profile" || settingsSection == "security" {
+                        Button(action: saveSettings) {
+                            HStack {
+                                Spacer()
+                                if isSaving {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Text("Сохранить изменения")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                                Spacer()
+                            }
+                            .frame(height: 48)
+                            .contentShape(Rectangle())
+                        }
                         .background(Theme.accent)
                         .cornerRadius(12)
+                        .buttonStyle(.plain)
                         .disabled(isSaving)
                         .padding(.top, 10)
+                        }
+                        if !noticeMessage.isEmpty {
+                            Text(noticeMessage).font(.footnote).foregroundColor(Theme.textSecondary)
+                        }
                     }
                     .padding(24)
                 }
@@ -1585,13 +1610,7 @@ struct UserProfileCardModal: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: 340)
-            .background(Color.white.opacity(0.12))
-            .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.92))
-            .cornerRadius(24)
-            .overlay(
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color.white.opacity(0.25), lineWidth: 1.5)
-            )
+            .modifier(VrotGlassBar())
             .shadow(color: Color.black.opacity(0.6), radius: 30)
             .padding(.horizontal, 20)
         }
