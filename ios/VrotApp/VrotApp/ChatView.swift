@@ -4,6 +4,14 @@ import PhotosUI
 import UniformTypeIdentifiers
 import AVKit
 
+func deduplicatedMessages(_ messages: [[String: Any]]) -> [[String: Any]] {
+    var ids = Set<String>()
+    return messages.filter { message in
+        guard let id = message["id"] as? String else { return true }
+        return ids.insert(id).inserted
+    }
+}
+
 final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate {
     static let shared = AudioRecorderManager()
 
@@ -386,7 +394,7 @@ struct ChatView: View {
             do {
                 let msgs = try await ApiService.shared.getArray(path: "/api/friends/\(id)/messages")
                 await MainActor.run {
-                    self.messages = msgs
+                    self.messages = deduplicatedMessages(msgs + self.messages)
                     self.isLoading = false
                 }
             } catch {
@@ -396,8 +404,9 @@ struct ChatView: View {
 
         RealtimeService.shared.onDirectMessage = { newMsg in
             DispatchQueue.main.async {
-                let id = newMsg["id"] as? String
-                if id == nil || !self.messages.contains(where: { $0["id"] as? String == id }) { self.messages.append(newMsg) }
+                guard let authorId = (newMsg["author"] as? [String: Any])?["id"] as? String,
+                      authorId == id || (newMsg["recipientId"] as? String) == id else { return }
+                self.messages = deduplicatedMessages(self.messages + [newMsg])
             }
         }
     }
@@ -412,7 +421,7 @@ struct ChatView: View {
             do {
                 let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": text])
                 await MainActor.run {
-                    self.messages.append(sent)
+                    self.messages = deduplicatedMessages(self.messages + [sent])
                 }
             } catch {
                 print("Failed to send message: \(error)")
@@ -444,7 +453,7 @@ struct ChatView: View {
                     ]
                 )
                 await MainActor.run {
-                    self.messages.append(sent)
+                    self.messages = deduplicatedMessages(self.messages + [sent])
                 }
             } catch {
                 print("Failed to send voice message: \(error)")
@@ -459,7 +468,7 @@ struct ChatView: View {
             let uploaded = try await ApiService.shared.uploadBinary(path: "/api/uploads", data: data, mimeType: mime, fileName: name)
             guard let attachmentId = uploaded["id"] as? String else { throw APIError.decodingError }
             let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": "", "attachmentId": attachmentId])
-            if !messages.contains(where: { ($0["id"] as? String) == (sent["id"] as? String) }) { messages.append(sent) }
+            messages = deduplicatedMessages(messages + [sent])
             attachmentError = ""
         } catch { attachmentError = error.localizedDescription }
     }

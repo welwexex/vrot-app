@@ -1,4 +1,43 @@
 import SwiftUI
+import PhotosUI
+import UIKit
+
+extension Color {
+    init?(hex: String) {
+        let clean = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard clean.count == 6, let value = Int(clean, radix: 16) else { return nil }
+        self.init(red: Double((value >> 16) & 0xff) / 255,
+                  green: Double((value >> 8) & 0xff) / 255,
+                  blue: Double(value & 0xff) / 255)
+    }
+}
+
+struct CommunityAvatarView: View {
+    let url: String?
+    let name: String
+    let size: CGFloat
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size / 4).fill(Theme.accent)
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Text(String(name.prefix(1)).uppercased()).font(.system(size: size * 0.45, weight: .bold)).foregroundColor(.white)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size / 4))
+        .task(id: url) {
+            image = nil
+            guard let url, let imageUrl = URL(string: ApiService.shared.baseURL + url) else { return }
+            var request = URLRequest(url: imageUrl)
+            if let cookie = SessionStore.shared.cookie() { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+            if let (data, _) = try? await URLSession.shared.data(for: request) { image = UIImage(data: data) }
+        }
+    }
+}
 
 struct CommunityDetailView: View {
     let community: [String: Any]
@@ -11,17 +50,22 @@ struct CommunityDetailView: View {
     @State private var newChannelName = ""
     @State private var newChannelKind = "text"
     @State private var isLoading = true
+    @State private var editedCommunity: [String: Any] = [:]
+    @State private var showCommunitySettings = false
+    @State private var selectedMember: [String: Any]?
+
+    private var currentCommunity: [String: Any] { editedCommunity.isEmpty ? community : editedCommunity }
 
     var body: some View {
         ZStack {
             Theme.darkBg.ignoresSafeArea()
 
             if let ch = activeChannel {
-                ChannelChatView(community: community, channel: ch, onBack: { activeChannel = nil })
+                ChannelChatView(community: currentCommunity, channel: ch, onBack: { activeChannel = nil })
             } else {
                 VStack(spacing: 0) {
                     // Header
-                    let commName = community["name"] as? String ?? "Сообщество"
+                    let commName = currentCommunity["name"] as? String ?? "Сообщество"
                     HStack(spacing: 12) {
                         Button(action: onBack) {
                             Image(systemName: "chevron.left")
@@ -29,20 +73,29 @@ struct CommunityDetailView: View {
                                 .foregroundColor(Theme.textPrimary)
                         }
 
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Theme.accent)
-                            .frame(width: 36, height: 36)
-                            .overlay(
-                                Text(String(commName.prefix(1)).uppercased())
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(Theme.textPrimary)
-                            )
+                        CommunityAvatarView(url: currentCommunity["avatarUrl"] as? String, name: commName, size: 36)
 
                         Text(commName)
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(Theme.textPrimary)
+                        if currentCommunity["verified"] as? Bool == true {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(Theme.accent)
+                                .accessibilityLabel("Верифицированное сообщество")
+                        }
 
                         Spacer()
+
+                        if (community["role"] as? String) == "owner" {
+                            Button(action: { showCommunitySettings = true }) {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(Theme.textPrimary)
+                                    .frame(width: 40, height: 40)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Настройки сообщества")
+                        }
 
                         Button(action: { showAddChannel = true }) {
                             Image(systemName: "plus")
@@ -109,20 +162,14 @@ struct CommunityDetailView: View {
                                 let presence = m["presence"] as? String ?? "offline"
 
                                 HStack(spacing: 10) {
-                                    Circle()
-                                        .fill(Theme.accent.opacity(0.3))
-                                        .frame(width: 32, height: 32)
-                                        .overlay(
-                                            Text(String(name.prefix(1)).uppercased())
-                                                .font(.system(size: 13, weight: .bold))
-                                                .foregroundColor(Theme.textPrimary)
-                                        )
+                                    AvatarBadgeView(avatarUrl: m["avatarUrl"] as? String, name: name, size: 32)
 
                                     VStack(alignment: .leading, spacing: 2) {
+                                        let topRole = (m["roles"] as? [[String: Any]])?.first
                                         Text(name)
-                                            .foregroundColor(Theme.textPrimary)
+                                            .foregroundColor(Color(hex: topRole?["color"] as? String ?? "") ?? Theme.textPrimary)
                                             .font(.system(size: 14, weight: .medium))
-                                        Text(role == "owner" ? "Владелец" : (role == "admin" ? "Администратор" : "Участник"))
+                                        Text(role == "owner" ? "Владелец" : (role == "admin" ? "Администратор" : (topRole?["name"] as? String ?? "Участник")))
                                             .font(.system(size: 11))
                                             .foregroundColor(Theme.textSecondary)
                                     }
@@ -135,6 +182,8 @@ struct CommunityDetailView: View {
                                 }
                                 .padding(.vertical, 4)
                                 .listRowBackground(Theme.darkBg)
+                                .contentShape(Rectangle())
+                                .onTapGesture { selectedMember = m }
                             }
                         }
                     }
@@ -146,6 +195,16 @@ struct CommunityDetailView: View {
         .sheet(isPresented: $showAddChannel) {
             AddChannelSheet(communityId: community["id"] as? String ?? "") {
                 loadCommunityData()
+            }
+        }
+        .sheet(isPresented: $showCommunitySettings) {
+            CommunityEditSheet(community: currentCommunity) { updated in
+                editedCommunity = community.merging(updated) { _, new in new }
+            }
+        }
+        .overlay {
+            if let member = selectedMember {
+                UserProfileCardModal(user: member, onDismiss: { selectedMember = nil })
             }
         }
     }
@@ -165,6 +224,92 @@ struct CommunityDetailView: View {
                 print("Failed to load community data: \(error)")
             }
         }
+    }
+}
+
+struct CommunityEditSheet: View {
+    let community: [String: Any]
+    let onSaved: ([String: Any]) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var description: String
+    @State private var avatarUrl: String?
+    @State private var selectedImage: PhotosPickerItem?
+    @State private var isSaving = false
+    @State private var errorMessage = ""
+
+    init(community: [String: Any], onSaved: @escaping ([String: Any]) -> Void) {
+        self.community = community
+        self.onSaved = onSaved
+        _name = State(initialValue: community["name"] as? String ?? "")
+        _description = State(initialValue: community["description"] as? String ?? "")
+        _avatarUrl = State(initialValue: community["avatarUrl"] as? String)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Оформление") {
+                    PhotosPicker(selection: $selectedImage, matching: .images) {
+                        HStack(spacing: 14) {
+                            CommunityAvatarView(url: avatarUrl, name: name, size: 56)
+                            Text("Изменить аватарку")
+                        }
+                    }
+                    if avatarUrl != nil {
+                        Button("Убрать аватарку", role: .destructive) { avatarUrl = nil }
+                    }
+                }
+                Section("Сообщество") {
+                    TextField("Название", text: $name)
+                    TextField("Описание", text: $description, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+                if !errorMessage.isEmpty {
+                    Section { Text(errorMessage).foregroundColor(Theme.red) }
+                }
+            }
+            .navigationTitle("Настройки сообщества")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Сохранить") { Task { await save() } }
+                        .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
+                }
+            }
+            .onChange(of: selectedImage) { item in
+                guard let item else { return }
+                Task { await upload(item) }
+            }
+        }
+    }
+
+    @MainActor private func upload(_ item: PhotosPickerItem) async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data),
+                  let jpeg = image.jpegData(compressionQuality: 0.75) else { throw APIError.decodingError }
+            let uploaded = try await ApiService.shared.uploadBinary(path: "/api/uploads", data: jpeg, mimeType: "image/jpeg", fileName: "community-avatar.jpg")
+            guard let path = uploaded["url"] as? String else { throw APIError.decodingError }
+            avatarUrl = path
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    @MainActor private func save() async {
+        guard let id = community["id"] as? String else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let updated = try await ApiService.shared.request(path: "/api/communities/\(id)", method: "PATCH", body: [
+                "name": name.trimmingCharacters(in: .whitespacesAndNewlines),
+                "description": description.trimmingCharacters(in: .whitespacesAndNewlines),
+                "avatarUrl": avatarUrl as Any? ?? NSNull()
+            ]) as? [String: Any] ?? [:]
+            onSaved(updated)
+            dismiss()
+        } catch { errorMessage = error.localizedDescription }
     }
 }
 
@@ -328,7 +473,7 @@ struct ChannelChatView: View {
         Task {
             do {
                 let msgs = try await ApiService.shared.getArray(path: "/api/channels/\(id)/messages")
-                await MainActor.run { self.messages = msgs }
+                await MainActor.run { self.messages = deduplicatedMessages(msgs + self.messages) }
             } catch {
                 print("Failed to load channel messages: \(error)")
             }
@@ -336,7 +481,7 @@ struct ChannelChatView: View {
 
         RealtimeService.shared.onChannelMessage = { newMsg in
             if (newMsg["channelId"] as? String) == id {
-                DispatchQueue.main.async { self.messages.append(newMsg) }
+                DispatchQueue.main.async { self.messages = deduplicatedMessages(self.messages + [newMsg]) }
             }
         }
     }
@@ -350,7 +495,7 @@ struct ChannelChatView: View {
         Task {
             do {
                 let sent = try await ApiService.shared.post(path: "/api/channels/\(id)/messages", body: ["content": text])
-                await MainActor.run { self.messages.append(sent) }
+                await MainActor.run { self.messages = deduplicatedMessages(self.messages + [sent]) }
             } catch {
                 print("Failed to send channel message: \(error)")
             }

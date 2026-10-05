@@ -2,6 +2,7 @@ import Foundation
 import CallKit
 import AVFoundation
 import UserNotifications
+import WebRTC
 
 struct CallState {
     var active: Bool = false
@@ -34,6 +35,8 @@ final class CallManager: NSObject, ObservableObject {
 
         self.provider = CXProvider(configuration: config)
         super.init()
+        RTCAudioSession.sharedInstance().useManualAudio = true
+        RTCAudioSession.sharedInstance().isAudioEnabled = false
         self.provider.setDelegate(self, queue: nil)
 
         setupNotifications()
@@ -112,7 +115,7 @@ final class CallManager: NSObject, ObservableObject {
 
         // Notify socket
         RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo)
-        RealtimeService.shared.sendCallJoin(friendId: targetId)
+        NativeCallMedia.shared.start(friendId: targetId, video: isVideo)
     }
 
     func startTimeoutTimer(seconds: Double) {
@@ -133,6 +136,7 @@ final class CallManager: NSObject, ObservableObject {
 
     func endCall() {
         cancelTimeout()
+        NativeCallMedia.shared.stop()
 
         guard let uuid = currentCallUUID else {
             DispatchQueue.main.async {
@@ -156,6 +160,7 @@ extension CallManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
         cancelTimeout()
         RealtimeService.shared.sendCallLeave()
+        NativeCallMedia.shared.stop()
         currentCallUUID = nil
         DispatchQueue.main.async {
             self.state = CallState()
@@ -167,7 +172,7 @@ extension CallManager: CXProviderDelegate {
         configureAudioSession()
         if !state.callId.isEmpty { RealtimeService.shared.sendCallResponse(callId: state.callId, accept: true) }
         if !state.targetId.isEmpty {
-            RealtimeService.shared.sendCallJoin(friendId: state.targetId)
+            NativeCallMedia.shared.start(friendId: state.targetId, video: state.isVideo)
         }
         DispatchQueue.main.async {
             self.state.answered = true
@@ -184,6 +189,7 @@ extension CallManager: CXProviderDelegate {
             RealtimeService.shared.sendCallCancel(friendId: state.targetId)
         }
         RealtimeService.shared.sendCallLeave()
+        NativeCallMedia.shared.stop()
         currentCallUUID = nil
         DispatchQueue.main.async {
             self.state = CallState()
@@ -198,9 +204,13 @@ extension CallManager: CXProviderDelegate {
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         configureAudioSession()
+        RTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
+        RTCAudioSession.sharedInstance().isAudioEnabled = true
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+        RTCAudioSession.sharedInstance().isAudioEnabled = false
+        RTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
         try? audioSession.setActive(false)
     }
 

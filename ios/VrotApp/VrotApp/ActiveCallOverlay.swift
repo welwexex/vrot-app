@@ -71,6 +71,7 @@ final class CameraPreviewUIView: UIView {
 
 struct ActiveCallOverlay: View {
     @ObservedObject var callManager = CallManager.shared
+    @ObservedObject var media = NativeCallMedia.shared
     @State private var isCameraEnabled = true
     let onMinimize: () -> Void
 
@@ -78,18 +79,11 @@ struct ActiveCallOverlay: View {
         ZStack {
             Theme.darkBg.ignoresSafeArea()
 
-            if callManager.state.isVideo && isCameraEnabled {
-                // Live camera feed
-                CameraPreviewView(isCameraActive: $isCameraEnabled)
+            if let remote = media.remoteVideos.first {
+                RTCVideoSurface(track: remote.track)
                     .ignoresSafeArea()
-
-                // Dark vignette overlay so text and controls remain crisp
-                LinearGradient(
-                    gradient: Gradient(colors: [Color.black.opacity(0.65), Color.clear, Color.black.opacity(0.8)]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                LinearGradient(colors: [.black.opacity(0.65), .clear, .black.opacity(0.72)], startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
             }
 
             VStack(spacing: 30) {
@@ -120,16 +114,32 @@ struct ActiveCallOverlay: View {
                     .padding(.vertical, 6)
                     .background(Color.black.opacity(0.4))
                     .cornerRadius(12)
-                    Text("Передача аудио и видео в iOS пока не подключена")
-                        .font(.caption)
-                        .foregroundColor(Theme.textSecondary)
+                    if !media.errorMessage.isEmpty {
+                        Text(media.errorMessage)
+                            .font(.caption)
+                            .foregroundColor(Theme.red)
+                    }
+                    if media.connectedPeers > 0 {
+                        Text("Участников в звонке: \(media.connectedPeers + 1)")
+                            .font(.caption)
+                            .foregroundColor(Theme.textSecondary)
+                    }
                 }
                 .padding(.top, 60)
 
                 Spacer()
 
-                if !callManager.state.isVideo || !isCameraEnabled {
+                if media.remoteVideos.isEmpty {
                     AvatarBadgeView(avatarUrl: callManager.state.avatarUrl, name: callManager.state.targetName, size: 120)
+                }
+
+                if isCameraEnabled, let localTrack = media.localVideoTrack, callManager.state.isVideo {
+                    RTCVideoSurface(track: localTrack)
+                        .frame(width: 104, height: 142)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.3)))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.trailing, 20)
                 }
 
                 Spacer()
@@ -139,6 +149,7 @@ struct ActiveCallOverlay: View {
                     // Mute Audio
                     Button(action: {
                         callManager.state.isMuted.toggle()
+                        media.setMuted(callManager.state.isMuted)
                     }) {
                         Image(systemName: callManager.state.isMuted ? "mic.slash.fill" : "mic.fill")
                             .font(.system(size: 24))
@@ -152,6 +163,7 @@ struct ActiveCallOverlay: View {
                     if callManager.state.isVideo {
                         Button(action: {
                             isCameraEnabled.toggle()
+                            media.setVideoEnabled(isCameraEnabled)
                         }) {
                             Image(systemName: isCameraEnabled ? "video.fill" : "video.slash.fill")
                                 .font(.system(size: 22))

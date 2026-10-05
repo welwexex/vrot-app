@@ -5,7 +5,11 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var isConnected = false
+    private var isReady = false
     private var pingTimer: Timer?
+    private var pendingPackets: [String] = []
+    private var nextAckId = 1
+    private var joinCallbacks: [Int: ([String: Any]) -> Void] = [:]
 
     var onDirectMessage: (([String: Any]) -> Void)?
     var onChannelMessage: (([String: Any]) -> Void)?
@@ -26,6 +30,7 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
         webSocketTask = session.webSocketTask(with: request)
         webSocketTask?.resume()
         isConnected = true
+        isReady = false
 
         receiveMessage()
         startPingTimer()
@@ -37,6 +42,9 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
         isConnected = false
+        isReady = false
+        pendingPackets.removeAll()
+        joinCallbacks.removeAll()
     }
 
     private func startPingTimer() {
@@ -67,6 +75,11 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
             case .failure(let error):
                 print("WebSocket error: \(error.localizedDescription)")
                 self?.isConnected = false
+                self?.isReady = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    guard SessionStore.shared.cookie() != nil else { return }
+                    self?.connect()
+                }
             }
         }
     }
@@ -85,6 +98,27 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
         // Engine.IO Ping (2) -> respond with Pong (3)
         if text == "2" {
             webSocketTask?.send(.string("3")) { _ in }
+            return
+        }
+
+        if text == "40" {
+            isReady = true
+            for packet in pendingPackets { webSocketTask?.send(.string(packet)) { _ in } }
+            pendingPackets.removeAll()
+            return
+        }
+
+        if text.hasPrefix("43") {
+            let suffix = text.dropFirst(2)
+            let digits = String(suffix.prefix(while: { $0.isNumber }))
+            guard let ackId = Int(digits), let start = suffix.firstIndex(of: "[") else { return }
+            let json = String(suffix[start...])
+            guard let data = json.data(using: .utf8),
+                  let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let response = values.first else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.joinCallbacks.removeValue(forKey: ackId)?(response)
+            }
             return
         }
 
@@ -110,8 +144,10 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                     CallManager.shared.reportIncomingCall(friendId: friendId, callerName: name, avatarUrl: fromObj["avatarUrl"] as? String, isVideo: isVideo, callId: callId, expiresAt: expiresAt)
 
                 case "call:peer-joined":
-                    CallManager.shared.cancelTimeout()
                     CallManager.shared.state.status = "Подключение медиа…"
+
+                case "call:signal":
+                    NativeCallMedia.shared.receiveSignal(payload)
 
                 case "call:ended":
                     let callId = payload["callId"] as? String ?? ""
@@ -121,9 +157,13 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                     if reason != "answered" && state.active && (state.callId == callId || (!state.incoming && state.targetId == calleeId)) {
                         CallManager.shared.state.status = reason == "timeout" ? "Время ожидания истекло" : "Вызов завершён"
                         CallManager.shared.endCall()
+                    } else if reason == "answered" && state.active && state.targetId == calleeId {
+                        CallManager.shared.cancelTimeout()
+                        CallManager.shared.state.status = "Подключение медиа…"
                     }
 
                 case "call:peer-left", "call:cancelled":
+                    if let socketId = payload["socketId"] as? String { NativeCallMedia.shared.peerLeft(socketId) }
                     CallManager.shared.state.status = "Собеседник завершил вызов"
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         CallManager.shared.endCall()
@@ -148,45 +188,33 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
     }
 
     func sendCallInvite(friendId: String, video: Bool) {
-        let packet = "42[\"call:invite\",{\"friendId\":\"\(friendId)\",\"video\":\(video)}]"
-        webSocketTask?.send(.string(packet)) { error in
-            if let error = error {
-                print("Failed to send call invite packet: \(error.localizedDescription)")
-            }
-        }
+        sendEvent("call:invite", payload: ["friendId": friendId, "video": video])
     }
 
-    func sendCallJoin(friendId: String) {
-        let packet = "42[\"call:join\",{\"kind\":\"friend\",\"id\":\"\(friendId)\"}]"
-        webSocketTask?.send(.string(packet)) { error in
-            if let error = error {
-                print("Failed to send call join packet: \(error.localizedDescription)")
-            }
-        }
+    func sendCallJoin(friendId: String, completion: @escaping ([String: Any]) -> Void) {
+        let ackId = nextAckId
+        nextAckId += 1
+        joinCallbacks[ackId] = completion
+        sendEvent("call:join", payload: ["kind": "friend", "id": friendId], ackId: ackId)
     }
 
     func sendCallResponse(callId: String, accept: Bool) {
-        let packet = "42[\"call:respond\",{\"callId\":\"\(callId)\",\"accept\":\(accept)}]"
-        webSocketTask?.send(.string(packet)) { error in
-            if let error = error { print("Failed to respond to call: \(error.localizedDescription)") }
-        }
+        sendEvent("call:respond", payload: ["callId": callId, "accept": accept])
     }
 
     func sendCallLeave() {
-        let packet = "42[\"call:leave\"]"
-        webSocketTask?.send(.string(packet)) { error in
-            if let error = error {
-                print("Failed to send call leave packet: \(error.localizedDescription)")
-            }
-        }
+        sendEvent("call:leave", payload: [:])
     }
 
     func sendCallCancel(friendId: String) {
-        let packet = "42[\"call:cancel\",{\"friendId\":\"\(friendId)\"}]"
-        webSocketTask?.send(.string(packet)) { error in
-            if let error = error {
-                print("Failed to send call cancel packet: \(error.localizedDescription)")
-            }
-        }
+        sendEvent("call:cancel", payload: ["friendId": friendId])
+    }
+
+    func sendEvent(_ name: String, payload: [String: Any], ackId: Int? = nil) {
+        guard let data = try? JSONSerialization.data(withJSONObject: [name, payload]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        let packet = "42\(ackId.map(String.init) ?? "")\(json)"
+        if isReady { webSocketTask?.send(.string(packet)) { _ in } }
+        else { pendingPackets.append(packet) }
     }
 }

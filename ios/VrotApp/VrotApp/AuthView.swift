@@ -160,19 +160,24 @@ struct AuthView: View {
 
                         // Submit Button
                         Button(action: performAuth) {
-                            if isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Text(mode == "login" ? "Войти" : "Зарегистрироваться")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(Theme.textPrimary)
+                            HStack {
+                                Spacer()
+                                if isLoading {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                } else {
+                                    Text(mode == "login" ? "Войти" : "Зарегистрироваться")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(Theme.textPrimary)
+                                }
+                                Spacer()
                             }
+                            .frame(height: 48)
+                            .contentShape(Rectangle())
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
                         .background(Theme.accent)
                         .cornerRadius(12)
+                        .buttonStyle(.plain)
                         .disabled(isLoading)
                     }
                     .padding(24)

@@ -33,9 +33,8 @@ struct MainTabsView: View {
             } else if let comm = activeCommunity {
                 CommunityDetailView(community: comm, onBack: { activeCommunity = nil })
             } else {
-                VStack(spacing: 0) {
-                    // Content
-                    TabView(selection: $selectedTab) {
+                // The system tab bar receives native Liquid Glass on iOS 26.
+                TabView(selection: $selectedTab) {
                         FriendsTabView(friends: friends, onRefresh: {
                             loadData()
                         }, onSelectFriend: { friend in
@@ -45,6 +44,7 @@ struct MainTabsView: View {
                             let name = friend["displayName"] as? String ?? (friend["username"] as? String ?? "Друг")
                             CallManager.shared.startOutgoingCall(targetId: id, name: name, avatarUrl: friend["avatarUrl"] as? String, isVideo: isVideo)
                         })
+                        .tabItem { Label(L("Чаты"), systemImage: "message.fill") }
                         .tag(0)
 
                         CommunitiesTabView(communities: communities, onSelectCommunity: { comm in
@@ -52,30 +52,14 @@ struct MainTabsView: View {
                         }, onCommunityCreated: {
                             loadData()
                         })
+                        .tabItem { Label(L("Сообщества"), systemImage: "person.3.fill") }
                         .tag(1)
 
-                        ProfileTabView(user: currentUser, onLogout: logout)
+                        ProfileTabView(user: currentUser, onLogout: logout, onUpdated: loadData)
+                            .tabItem { Label(L("Профиль"), systemImage: "person.crop.circle.fill") }
                             .tag(2)
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-
-                    // Liquid Glass Bottom Navigation Bar
-                    HStack {
-                        TabBarButton(icon: "message.fill", title: L("Чаты"), isSelected: selectedTab == 0) {
-                            selectedTab = 0
-                        }
-                        TabBarButton(icon: "person.3.fill", title: L("Сообщества"), isSelected: selectedTab == 1) {
-                            selectedTab = 1
-                        }
-                        TabBarButton(icon: "person.crop.circle.fill", title: L("Профиль"), isSelected: selectedTab == 2) {
-                            selectedTab = 2
-                        }
-                    }
-                    .padding(.vertical, 10)
-                    .modifier(VrotGlassBar())
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 4)
                 }
+                .tint(Theme.accent)
             }
         }
         .onAppear(perform: loadData)
@@ -1053,6 +1037,7 @@ struct CommunitiesTabView: View {
 struct ProfileTabView: View {
     let user: [String: Any]
     let onLogout: () -> Void
+    let onUpdated: () -> Void
     @AppStorage("vrot_theme") private var appTheme = "dark"
     @AppStorage("vrot_language") private var appLanguage = "ru"
 
@@ -1205,25 +1190,6 @@ struct ProfileTabView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 1))
                     }
 
-                    // System Notifications / Call status info
-                    HStack {
-                        Image(systemName: "bell.badge.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(Theme.green)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Уведомления и звонки")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(Theme.textPrimary)
-                            Text("Медиасоединение iOS ещё не готово")
-                                .font(.system(size: 12))
-                                .foregroundColor(Theme.textSecondary)
-                        }
-                        Spacer()
-                    }
-                    .padding(14)
-                    .background(Color.white.opacity(0.06))
-                    .cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 1))
                 }
                 .padding(.horizontal, 16)
 
@@ -1324,7 +1290,7 @@ struct ProfileTabView: View {
 
                         // Liquid Glass Status Picker
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Сетевой статус (Liquid Glass)")
+                            Text("Сетевой статус")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(Theme.textSecondary)
 
@@ -1447,6 +1413,7 @@ struct ProfileTabView: View {
                     self.noticeMessage = "Настройки успешно сохранены!"
                     self.currentPassword = ""
                     self.newPassword = ""
+                    self.onUpdated()
                 }
             } catch {
                 await MainActor.run {
@@ -1495,6 +1462,9 @@ struct StatusOptionButton: View {
 struct UserProfileCardModal: View {
     let user: [String: Any]
     let onDismiss: () -> Void
+    @State private var fullProfile: [String: Any] = [:]
+
+    private var profile: [String: Any] { user.merging(fullProfile) { _, new in new } }
 
     var body: some View {
         ZStack {
@@ -1503,15 +1473,15 @@ struct UserProfileCardModal: View {
 
             VStack(spacing: 0) {
                 // Banner
-                let bannerUrl = user["bannerUrl"] as? String
-                let avatarUrl = user["avatarUrl"] as? String
-                let name = user["displayName"] as? String ?? (user["username"] as? String ?? "Пользователь")
-                let username = user["username"] as? String ?? ""
-                let bio = user["bio"] as? String ?? ""
-                let presence = user["status"] as? String ?? (user["presence"] as? String ?? "offline")
-                let isVerified = user["verified"] as? Bool ?? false
-                let isDonator = user["donator"] as? Bool ?? false
-                let isMrbeast = user["mrbeastBadge"] as? Bool ?? false
+                let bannerUrl = profile["bannerUrl"] as? String
+                let avatarUrl = profile["avatarUrl"] as? String
+                let name = profile["displayName"] as? String ?? (profile["username"] as? String ?? "Пользователь")
+                let username = profile["username"] as? String ?? ""
+                let bio = profile["bio"] as? String ?? ""
+                let presence = profile["status"] as? String ?? (profile["presence"] as? String ?? "offline")
+                let isVerified = profile["verified"] as? Bool ?? false
+                let isDonator = profile["donator"] as? Bool ?? false
+                let isMrbeast = profile["mrbeastBadge"] as? Bool ?? false
 
                 ZStack(alignment: .bottomLeading) {
                     if let bUrl = bannerUrl, !bUrl.isEmpty {
@@ -1527,7 +1497,7 @@ struct UserProfileCardModal: View {
                                 Color.purple.opacity(0.4).frame(height: 120)
                             }
                         } else {
-                            AsyncImage(url: URL(string: ApiService.shared.baseURL + bUrl)) { img in
+                            AsyncImage(url: URL(string: bUrl.hasPrefix("https://") ? bUrl : ApiService.shared.baseURL + bUrl)) { img in
                                 img.resizable().scaledToFill()
                             } placeholder: {
                                 Color.purple.opacity(0.4)
@@ -1599,6 +1569,17 @@ struct UserProfileCardModal: View {
                             .foregroundColor(Theme.textPrimary)
                             .padding(.top, 4)
                     }
+                    if let adminRole = profile["adminRole"] as? String, adminRole != "user" {
+                        Label(adminRole == "founder" ? "Основатель VROT" : "Администратор VROT", systemImage: "shield.lefthalf.filled")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Theme.accent)
+                    }
+                    if let role = user["role"] as? String {
+                        let topRole = (user["roles"] as? [[String: Any]])?.first
+                        Text(role == "owner" ? "Владелец сообщества" : (role == "admin" ? "Администратор сообщества" : (topRole?["name"] as? String ?? "Участник сообщества")))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(Color(hex: topRole?["color"] as? String ?? "") ?? Theme.textSecondary)
+                    }
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1613,6 +1594,12 @@ struct UserProfileCardModal: View {
             )
             .shadow(color: Color.black.opacity(0.6), radius: 30)
             .padding(.horizontal, 20)
+        }
+        .task(id: user["id"] as? String) {
+            guard let id = user["id"] as? String else { return }
+            if let result = try? await ApiService.shared.getObject(path: "/api/users/\(id)/profile") {
+                fullProfile = result["user"] as? [String: Any] ?? [:]
+            }
         }
     }
 }

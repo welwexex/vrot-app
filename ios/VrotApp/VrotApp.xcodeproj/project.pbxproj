@@ -16,6 +16,8 @@
 		A10000072E93400000000007 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000072E93400000000007 /* ChatView.swift */; };
 		A10000082E93400000000008 /* ActiveCallOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000082E93400000000008 /* ActiveCallOverlay.swift */; };
 		A10000112E93400000000011 /* CommunityDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000112E93400000000011 /* CommunityDetailView.swift */; };
+		A10000122E93400000000012 /* NativeCallMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000122E93400000000012 /* NativeCallMedia.swift */; };
+		A10000132E93400000000013 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = H10000012E93400000000001 /* WebRTC */; };
 		A10000092E93400000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000092E93400000000009 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -30,6 +32,7 @@
 		B10000072E93400000000007 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		B10000082E93400000000008 /* ActiveCallOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveCallOverlay.swift; sourceTree = "<group>"; };
 		B10000112E93400000000011 /* CommunityDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityDetailView.swift; sourceTree = "<group>"; };
+		B10000122E93400000000012 /* NativeCallMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCallMedia.swift; sourceTree = "<group>"; };
 		B10000092E93400000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10000102E93400000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -39,6 +42,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000132E93400000000013 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +69,7 @@
 				B10000072E93400000000007 /* ChatView.swift */,
 				B10000082E93400000000008 /* ActiveCallOverlay.swift */,
 				B10000112E93400000000011 /* CommunityDetailView.swift */,
+				B10000122E93400000000012 /* NativeCallMedia.swift */,
 				B10000092E93400000000009 /* Assets.xcassets */,
 				B10000102E93400000000010 /* Info.plist */,
 			);
@@ -95,6 +100,9 @@
 			dependencies = (
 			);
 			name = VrotApp;
+			packageProductDependencies = (
+				H10000012E93400000000001 /* WebRTC */,
+			);
 			productName = VrotApp;
 			productReference = B10000002E93400000000000 /* VrotApp.app */;
 			productType = "com.apple.product-type.application";
@@ -124,6 +132,9 @@
 			);
 			mainGroup = D10000002E93400000000000;
 			productRefGroup = D10000022E93400000000002 /* Products */;
+			packageReferences = (
+				I10000012E93400000000001 /* XCRemoteSwiftPackageReference "WebRTC" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -157,6 +168,7 @@
 				A10000072E93400000000007 /* ChatView.swift in Sources */,
 				A10000082E93400000000008 /* ActiveCallOverlay.swift in Sources */,
 				A10000112E93400000000011 /* CommunityDetailView.swift in Sources */,
+				A10000122E93400000000012 /* NativeCallMedia.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,6 +287,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		I10000012E93400000000001 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				branch = latest;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		H10000012E93400000000001 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = I10000012E93400000000001 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 	};
 	rootObject = F00000002E93400000000000 /* Project object */;
