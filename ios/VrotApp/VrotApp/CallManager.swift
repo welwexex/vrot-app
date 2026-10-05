@@ -105,6 +105,7 @@ final class CallManager: NSObject, ObservableObject {
 
         // Notify socket
         RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo)
+        RealtimeService.shared.sendCallJoin(friendId: targetId)
     }
 
     func startTimeoutTimer(seconds: Double) {
@@ -128,6 +129,7 @@ final class CallManager: NSObject, ObservableObject {
         let targetId = state.targetId
         if !targetId.isEmpty {
             RealtimeService.shared.sendCallCancel(friendId: targetId)
+            RealtimeService.shared.sendCallLeave()
         }
 
         guard let uuid = currentCallUUID else {
@@ -151,6 +153,7 @@ final class CallManager: NSObject, ObservableObject {
 extension CallManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
         cancelTimeout()
+        RealtimeService.shared.sendCallLeave()
         currentCallUUID = nil
         DispatchQueue.main.async {
             self.state = CallState()
@@ -160,6 +163,9 @@ extension CallManager: CXProviderDelegate {
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         cancelTimeout()
         configureAudioSession()
+        if !state.targetId.isEmpty {
+            RealtimeService.shared.sendCallJoin(friendId: state.targetId)
+        }
         DispatchQueue.main.async {
             self.state.status = "Идёт разговор"
         }
