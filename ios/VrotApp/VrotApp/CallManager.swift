@@ -10,6 +10,10 @@ struct CallState {
     var isVideo: Bool = false
     var isMuted: Bool = false
     var status: String = ""
+    var avatarUrl: String? = nil
+    var callId: String = ""
+    var incoming: Bool = false
+    var answered: Bool = false
 }
 
 final class CallManager: NSObject, ObservableObject {
@@ -54,10 +58,12 @@ final class CallManager: NSObject, ObservableObject {
     }
 
     // Show native system incoming call (CallKit lock screen)
-    func reportIncomingCall(friendId: String, callerName: String, isVideo: Bool = false) {
+    func reportIncomingCall(friendId: String, callerName: String, avatarUrl: String? = nil, isVideo: Bool = false, callId: String, expiresAt: Double, completion: (() -> Void)? = nil) {
+        guard expiresAt > Date().timeIntervalSince1970 * 1000 else { completion?(); return }
+        if state.active && state.callId == callId { completion?(); return }
         let uuid = UUID()
         self.currentCallUUID = uuid
-        self.state = CallState(active: true, targetId: friendId, targetName: callerName, isVideo: isVideo, status: "Входящий вызов…")
+        self.state = CallState(active: true, targetId: friendId, targetName: callerName, isVideo: isVideo, status: "Входящий вызов…", avatarUrl: avatarUrl, callId: callId, incoming: true)
 
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: callerName)
@@ -69,21 +75,22 @@ final class CallManager: NSObject, ObservableObject {
         update.supportsDTMF = false
 
         provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
+            completion?()
             if let error = error {
                 print("Failed to report incoming call: \(error.localizedDescription)")
                 self?.endCall()
             } else {
                 // 15 seconds unanswered call timeout
                 DispatchQueue.main.async {
-                    self?.startTimeoutTimer(seconds: 15.0)
+                    self?.startTimeoutTimer(seconds: max(0, (expiresAt - Date().timeIntervalSince1970 * 1000) / 1000))
                 }
             }
         }
     }
 
     // Start outgoing call
-    func startOutgoingCall(targetId: String, name: String, isVideo: Bool) {
-        self.state = CallState(active: true, targetId: targetId, targetName: name, isVideo: isVideo, status: "Вызов… (ожидание)")
+    func startOutgoingCall(targetId: String, name: String, avatarUrl: String? = nil, isVideo: Bool) {
+        self.state = CallState(active: true, targetId: targetId, targetName: name, isVideo: isVideo, status: "Вызов… (ожидание)", avatarUrl: avatarUrl)
         let handle = CXHandle(type: .generic, value: name)
         let uuid = UUID()
         self.currentCallUUID = uuid
@@ -105,6 +112,7 @@ final class CallManager: NSObject, ObservableObject {
 
         // Notify socket
         RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo)
+        RealtimeService.shared.sendCallJoin(friendId: targetId)
     }
 
     func startTimeoutTimer(seconds: Double) {
@@ -125,10 +133,6 @@ final class CallManager: NSObject, ObservableObject {
 
     func endCall() {
         cancelTimeout()
-        let targetId = state.targetId
-        if !targetId.isEmpty {
-            RealtimeService.shared.sendCallCancel(friendId: targetId)
-        }
 
         guard let uuid = currentCallUUID else {
             DispatchQueue.main.async {
@@ -151,6 +155,7 @@ final class CallManager: NSObject, ObservableObject {
 extension CallManager: CXProviderDelegate {
     func providerDidReset(_ provider: CXProvider) {
         cancelTimeout()
+        RealtimeService.shared.sendCallLeave()
         currentCallUUID = nil
         DispatchQueue.main.async {
             self.state = CallState()
@@ -160,14 +165,25 @@ extension CallManager: CXProviderDelegate {
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         cancelTimeout()
         configureAudioSession()
+        if !state.callId.isEmpty { RealtimeService.shared.sendCallResponse(callId: state.callId, accept: true) }
+        if !state.targetId.isEmpty {
+            RealtimeService.shared.sendCallJoin(friendId: state.targetId)
+        }
         DispatchQueue.main.async {
-            self.state.status = "Идёт разговор"
+            self.state.answered = true
+            self.state.status = "Подключение медиа…"
         }
         action.fulfill()
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         cancelTimeout()
+        if state.incoming && !state.answered && !state.callId.isEmpty {
+            RealtimeService.shared.sendCallResponse(callId: state.callId, accept: false)
+        } else if !state.targetId.isEmpty {
+            RealtimeService.shared.sendCallCancel(friendId: state.targetId)
+        }
+        RealtimeService.shared.sendCallLeave()
         currentCallUUID = nil
         DispatchQueue.main.async {
             self.state = CallState()

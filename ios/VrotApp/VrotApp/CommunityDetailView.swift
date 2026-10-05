@@ -26,7 +26,7 @@ struct CommunityDetailView: View {
                         Button(action: onBack) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
                         }
 
                         RoundedRectangle(cornerRadius: 8)
@@ -35,12 +35,12 @@ struct CommunityDetailView: View {
                             .overlay(
                                 Text(String(commName.prefix(1)).uppercased())
                                     .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                             )
 
                         Text(commName)
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         Spacer()
 
@@ -69,7 +69,7 @@ struct CommunityDetailView: View {
                                         .foregroundColor(Theme.textSecondary)
 
                                     Text(name)
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Theme.textPrimary)
                                         .font(.system(size: 16, weight: .medium))
 
                                     Spacer()
@@ -115,12 +115,12 @@ struct CommunityDetailView: View {
                                         .overlay(
                                             Text(String(name.prefix(1)).uppercased())
                                                 .font(.system(size: 13, weight: .bold))
-                                                .foregroundColor(.white)
+                                                .foregroundColor(Theme.textPrimary)
                                         )
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(name)
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.textPrimary)
                                             .font(.system(size: 14, weight: .medium))
                                         Text(role == "owner" ? "Владелец" : (role == "admin" ? "Администратор" : "Участник"))
                                             .font(.system(size: 11))
@@ -184,7 +184,7 @@ struct AddChannelSheet: View {
             VStack(spacing: 20) {
                 Text("Создать канал")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
 
                 CustomTextField(placeholder: "Название канала", text: $name)
 
@@ -200,7 +200,7 @@ struct AddChannelSheet: View {
                     } else {
                         Text("Создать")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -252,12 +252,12 @@ struct ChannelChatView: View {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                 }
 
                 Text("# \(channelName)")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
 
                 Spacer()
             }
@@ -281,7 +281,7 @@ struct ChannelChatView: View {
                                     .foregroundColor(Theme.accent)
                                 Text(text)
                                     .font(.system(size: 15))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
@@ -303,12 +303,12 @@ struct ChannelChatView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(Theme.card)
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
                     .cornerRadius(20)
 
                 Button(action: sendMessage) {
                     Image(systemName: "paperplane.fill")
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                         .padding(10)
                         .background(Theme.accent)
                         .clipShape(Circle())

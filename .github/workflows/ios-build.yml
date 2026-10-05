@@ -1,19 +1,19 @@
-name: Build iOS IPA
+name: Verify iOS build (unsigned)
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, codex/ios-native-update ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      - name: Show Xcode version
+        run: xcodebuild -version
 
       - name: Build unsigned .app
         run: |
@@ -28,7 +28,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CONFIGURATION_BUILD_DIR=build/Release-iphoneos
 
-      - name: Package into .ipa
+      - name: Package unsigned test artifact
         run: |
           cd ios/VrotApp
           mkdir -p Payload
@@ -40,15 +40,7 @@ jobs:
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vrot-ipa
+          name: vrot-unsigned-ipa-not-installable
           path: ios/VrotApp/VrotApp.ipa
           retention-days: 14
 
-      - name: Deploy to VROT Server (Optional)
-        if: env.DEPLOY_SSH_KEY != ''
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        run: |
-          echo "Deploying to server if secrets are set..."
-          # scp -o StrictHostKeyChecking=no ios/VrotApp/VrotApp.ipa root@${DEPLOY_HOST}:/var/www/html/vrot.ipa

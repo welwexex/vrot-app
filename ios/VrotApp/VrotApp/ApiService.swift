@@ -10,11 +10,30 @@ final class SessionStore {
     }
 
     func cookie() -> String? {
-        return UserDefaults.standard.string(forKey: key)
+        if let saved = UserDefaults.standard.string(forKey: key), !saved.isEmpty {
+            return saved
+        }
+        if let cookies = HTTPCookieStorage.shared.cookies {
+            for c in cookies {
+                if c.name == "vrot_session" {
+                    let formatted = "\(c.name)=\(c.value)"
+                    UserDefaults.standard.set(formatted, forKey: key)
+                    return formatted
+                }
+            }
+        }
+        return nil
     }
 
     func clear() {
         UserDefaults.standard.removeObject(forKey: key)
+        if let cookies = HTTPCookieStorage.shared.cookies {
+            for c in cookies {
+                if c.name == "vrot_session" {
+                    HTTPCookieStorage.shared.deleteCookie(c)
+                }
+            }
+        }
     }
 }
 
@@ -32,7 +51,7 @@ enum APIError: LocalizedError {
     }
 }
 
-final class ApiService: NSObject, URLSessionDelegate {
+final class ApiService: NSObject {
     static let shared = ApiService()
     let baseURL = "https://api.vrot.fun"
 
@@ -43,17 +62,7 @@ final class ApiService: NSObject, URLSessionDelegate {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 30
-        self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }
-
-    // Bypass any clock-skew / self-signed / Let's Encrypt renewal lag
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let serverTrust = challenge.protectionSpace.serverTrust {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-        } else {
-            completionHandler(.performDefaultHandling, nil)
-        }
+        self.session = URLSession(configuration: config)
     }
 
     func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Any {
@@ -84,6 +93,10 @@ final class ApiService: NSObject, URLSessionDelegate {
                   let setCookie = fields["Set-Cookie"] {
             if let first = setCookie.components(separatedBy: ";").first, first.hasPrefix("vrot_session=") {
                 SessionStore.shared.save(cookie: first)
+            }
+        } else if let url = req.url, let cookies = HTTPCookieStorage.shared.cookies(for: url) {
+            for c in cookies where c.name == "vrot_session" {
+                SessionStore.shared.save(cookie: "\(c.name)=\(c.value)")
             }
         }
 
@@ -125,5 +138,26 @@ final class ApiService: NSObject, URLSessionDelegate {
 
     func delete(path: String) async throws -> [String: Any] {
         return (try await request(path: path, method: "DELETE")) as? [String: Any] ?? [:]
+    }
+
+    func uploadBinary(path: String, data: Data, mimeType: String, fileName: String) async throws -> [String: Any] {
+        guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("https://vrot.fun", forHTTPHeaderField: "Origin")
+        req.setValue("VrotApp-iOS/1.0", forHTTPHeaderField: "User-Agent")
+        req.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        req.setValue(fileName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileName, forHTTPHeaderField: "X-File-Name")
+        if let cookie = SessionStore.shared.cookie() {
+            req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        req.httpBody = data
+
+        let (respData, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIError.decodingError }
+        if http.statusCode < 200 || http.statusCode >= 300 {
+            throw APIError.serverError(http.statusCode, "Ошибка загрузки файла")
+        }
+        return (try? JSONSerialization.jsonObject(with: respData) as? [String: Any]) ?? [:]
     }
 }
