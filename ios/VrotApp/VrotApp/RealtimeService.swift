@@ -164,9 +164,11 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
 
                 case "call:peer-left", "call:cancelled":
                     if let socketId = payload["socketId"] as? String { NativeCallMedia.shared.peerLeft(socketId) }
-                    CallManager.shared.state.status = "Собеседник завершил вызов"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                        CallManager.shared.endCall()
+                    if CallManager.shared.state.kind == "friend" {
+                        CallManager.shared.state.status = "Собеседник завершил вызов"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                            CallManager.shared.endCall()
+                        }
                     }
 
                 case "dm:new":
@@ -191,11 +193,11 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
         sendEvent("call:invite", payload: ["friendId": friendId, "video": video])
     }
 
-    func sendCallJoin(friendId: String, completion: @escaping ([String: Any]) -> Void) {
+    func sendCallJoin(targetId: String, kind: String, completion: @escaping ([String: Any]) -> Void) {
         let ackId = nextAckId
         nextAckId += 1
         joinCallbacks[ackId] = completion
-        sendEvent("call:join", payload: ["kind": "friend", "id": friendId], ackId: ackId)
+        sendEvent("call:join", payload: ["kind": kind, "id": targetId], ackId: ackId)
     }
 
     func sendCallResponse(callId: String, accept: Bool) {

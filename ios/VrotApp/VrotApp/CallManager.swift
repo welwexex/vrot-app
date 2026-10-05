@@ -15,6 +15,7 @@ struct CallState {
     var callId: String = ""
     var incoming: Bool = false
     var answered: Bool = false
+    var kind: String = "friend"
 }
 
 final class CallManager: NSObject, ObservableObject {
@@ -92,8 +93,8 @@ final class CallManager: NSObject, ObservableObject {
     }
 
     // Start outgoing call
-    func startOutgoingCall(targetId: String, name: String, avatarUrl: String? = nil, isVideo: Bool) {
-        self.state = CallState(active: true, targetId: targetId, targetName: name, isVideo: isVideo, status: "Вызов… (ожидание)", avatarUrl: avatarUrl)
+    func startOutgoingCall(targetId: String, name: String, avatarUrl: String? = nil, isVideo: Bool, kind: String = "friend") {
+        self.state = CallState(active: true, targetId: targetId, targetName: name, isVideo: isVideo, status: kind == "channel" ? "Подключение к каналу…" : "Вызов… (ожидание)", avatarUrl: avatarUrl, kind: kind)
         let handle = CXHandle(type: .generic, value: name)
         let uuid = UUID()
         self.currentCallUUID = uuid
@@ -108,14 +109,14 @@ final class CallManager: NSObject, ObservableObject {
             } else {
                 // 15 seconds timer
                 DispatchQueue.main.async {
-                    self?.startTimeoutTimer(seconds: 15.0)
+                    if kind == "friend" { self?.startTimeoutTimer(seconds: 15.0) }
                 }
             }
         }
 
         // Notify socket
-        RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo)
-        NativeCallMedia.shared.start(friendId: targetId, video: isVideo)
+        if kind == "friend" { RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo) }
+        NativeCallMedia.shared.start(targetId: targetId, kind: kind, video: isVideo)
     }
 
     func startTimeoutTimer(seconds: Double) {
@@ -172,7 +173,7 @@ extension CallManager: CXProviderDelegate {
         configureAudioSession()
         if !state.callId.isEmpty { RealtimeService.shared.sendCallResponse(callId: state.callId, accept: true) }
         if !state.targetId.isEmpty {
-            NativeCallMedia.shared.start(friendId: state.targetId, video: state.isVideo)
+            NativeCallMedia.shared.start(targetId: state.targetId, kind: state.kind, video: state.isVideo)
         }
         DispatchQueue.main.async {
             self.state.answered = true
@@ -185,7 +186,7 @@ extension CallManager: CXProviderDelegate {
         cancelTimeout()
         if state.incoming && !state.answered && !state.callId.isEmpty {
             RealtimeService.shared.sendCallResponse(callId: state.callId, accept: false)
-        } else if !state.targetId.isEmpty {
+        } else if state.kind == "friend" && !state.targetId.isEmpty {
             RealtimeService.shared.sendCallCancel(friendId: state.targetId)
         }
         RealtimeService.shared.sendCallLeave()

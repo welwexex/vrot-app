@@ -62,9 +62,9 @@ final class NativeCallMedia: ObservableObject {
         )
     }
 
-    func start(friendId: String, video: Bool) {
+    func start(targetId: String, kind: String = "friend", video: Bool) {
         stop()
-        target = ["kind": "friend", "id": friendId]
+        target = ["kind": kind, "id": targetId]
         active = true
         errorMessage = ""
         Task {
@@ -78,10 +78,10 @@ final class NativeCallMedia: ObservableObject {
                                         credential: entry["credential"] as? String ?? "")
                 }
                 DispatchQueue.main.async {
-                    guard self.active, (self.target?["id"] as? String) == friendId else { return }
+                    guard self.active, (self.target?["id"] as? String) == targetId else { return }
                     self.iceServers = servers
                     self.prepareTracks(video: video)
-                    RealtimeService.shared.sendCallJoin(friendId: friendId) { response in
+                    RealtimeService.shared.sendCallJoin(targetId: targetId, kind: kind) { response in
                         guard response["ok"] as? Bool == true else {
                             self.errorMessage = response["error"] as? String ?? "Не удалось войти в звонок"
                             return

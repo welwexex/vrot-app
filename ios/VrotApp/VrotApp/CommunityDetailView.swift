@@ -129,7 +129,7 @@ struct CommunityDetailView: View {
 
                                     if kind == "voice" {
                                         Button(action: {
-                                            CallManager.shared.startOutgoingCall(targetId: ch["id"] as? String ?? "", name: "# \(name)", isVideo: false)
+                                            CallManager.shared.startOutgoingCall(targetId: ch["id"] as? String ?? "", name: "# \(name)", isVideo: false, kind: "channel")
                                         }) {
                                             Text("Войти")
                                                 .font(.system(size: 12, weight: .bold))
@@ -149,7 +149,7 @@ struct CommunityDetailView: View {
                                     if kind == "text" {
                                         activeChannel = ch
                                     } else {
-                                        CallManager.shared.startOutgoingCall(targetId: ch["id"] as? String ?? "", name: "# \(name)", isVideo: false)
+                                        CallManager.shared.startOutgoingCall(targetId: ch["id"] as? String ?? "", name: "# \(name)", isVideo: false, kind: "channel")
                                     }
                                 }
                             }

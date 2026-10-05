@@ -142,6 +142,23 @@ struct ActiveCallOverlay: View {
                         .padding(.trailing, 20)
                 }
 
+                if media.remoteVideos.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(media.remoteVideos.dropFirst())) { remote in
+                                VStack(spacing: 4) {
+                                    RTCVideoSurface(track: remote.track)
+                                        .frame(width: 112, height: 84)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    Text(remote.name).font(.caption2).lineLimit(1)
+                                }
+                                .frame(width: 112)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+
                 Spacer()
 
                 // Call Controls
