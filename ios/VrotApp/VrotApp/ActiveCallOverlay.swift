@@ -23,7 +23,7 @@ final class CameraPreviewUIView: UIView {
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
 
-    override layoutSubviews() {
+    override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer?.frame = self.bounds
     }
