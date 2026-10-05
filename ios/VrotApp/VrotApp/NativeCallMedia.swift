@@ -12,6 +12,12 @@ struct RemoteCallVideo: Identifiable {
 
 struct RTCVideoSurface: UIViewRepresentable {
     let track: RTCVideoTrack
+    final class Coordinator {
+        let track: RTCVideoTrack
+        init(track: RTCVideoTrack) { self.track = track }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(track: track) }
 
     func makeUIView(context: Context) -> RTCMTLVideoView {
         let view = RTCMTLVideoView(frame: .zero)
@@ -20,12 +26,10 @@ struct RTCVideoSurface: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: RTCMTLVideoView, context: Context) {
-        track.add(view)
-    }
+    func updateUIView(_ view: RTCMTLVideoView, context: Context) {}
 
-    static func dismantleUIView(_ view: RTCMTLVideoView, coordinator: ()) {
-        view.renderFrame(nil)
+    static func dismantleUIView(_ view: RTCMTLVideoView, coordinator: Coordinator) {
+        coordinator.track.remove(view)
     }
 }
 
