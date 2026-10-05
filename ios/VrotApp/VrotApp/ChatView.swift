@@ -347,20 +347,6 @@ struct ChatView: View {
         }
     }
 
-            // User Profile Modal Sheet Overlay
-            if showUserProfile {
-                UserProfileCardModal(user: friend, onDismiss: {
-                    showUserProfile = false
-                })
-                .transition(.opacity)
-            }
-        }
-        .onAppear(perform: loadMessages)
-        .onDisappear {
-            player.stop()
-        }
-    }
-
     private func loadMessages() {
         guard let id = friend["id"] as? String else { return }
         Task {
@@ -497,7 +483,7 @@ struct ChatMessageItemView: View {
                     .padding(.vertical, 10)
                     .background(
                         isMe ?
-                        LinearGradient(colors: [Theme.accent, Theme.accentGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
                         : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                     .cornerRadius(18)
@@ -512,7 +498,7 @@ struct ChatMessageItemView: View {
                         .padding(.vertical, 10)
                         .background(
                             isMe ?
-                            LinearGradient(colors: [Theme.accent, Theme.accentGradientEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
                             : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
                         )
                         .foregroundColor(.white)
