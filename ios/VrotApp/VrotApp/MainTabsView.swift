@@ -42,6 +42,9 @@ struct MainTabsView: View {
 
                         ProfileTabView(user: currentUser, onLogout: logout)
                             .tag(2)
+
+                        LiquidGalaxyTabView()
+                            .tag(3)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
 
@@ -52,6 +55,9 @@ struct MainTabsView: View {
                         }
                         TabBarButton(icon: "person.3.fill", title: "Сообщества", isSelected: selectedTab == 1) {
                             selectedTab = 1
+                        }
+                        TabBarButton(icon: "sparkles", title: "Galaxy", isSelected: selectedTab == 3) {
+                            selectedTab = 3
                         }
                         TabBarButton(icon: "person.crop.circle.fill", title: "Профиль", isSelected: selectedTab == 2) {
                             selectedTab = 2
@@ -1161,3 +1167,161 @@ struct ProfileTabView: View {
         }
     }
 }
+
+struct LiquidGalaxyTabView: View {
+    @State private var rotationAngle: Double = 0
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var selectedScreen = 0
+    @State private var isSpinning = true
+
+    let galaxyScreens = [
+        ("Главный купол (Rig-1)", "Звездная система VROT & Орион", "globe.europe.africa.fill", Color.purple),
+        ("Левый экран (Rig-2)", "Панорама туманности Андромеды", "sparkles", Color.cyan),
+        ("Правый экран (Rig-3)", "Космический радар связи", "antenna.radiowaves.left.and.right", Color.blue),
+        ("Нижняя консоль (Kiosk)", "Liquid Galaxy Master Controller", "display.2", Color.indigo)
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                // Header
+                VStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(.purple)
+                            .font(.system(size: 24))
+                        Text("LIQUID GALAXY")
+                            .font(.system(size: 24, weight: .black))
+                            .foregroundColor(.white)
+                        Image(systemName: "sparkles")
+                            .foregroundColor(.purple)
+                            .font(.system(size: 24))
+                    }
+
+                    Text("Панорамная многоэкранная система визуализации")
+                        .font(.system(size: 13))
+                        .foregroundColor(Theme.textSecondary)
+                }
+                .padding(.top, 24)
+
+                // Interactive Galaxy Orb
+                ZStack {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                gradient: Gradient(colors: [Color.purple.opacity(0.8), Color.blue.opacity(0.4), Color.clear]),
+                                center: .center,
+                                startRadius: 10,
+                                endRadius: 120
+                            )
+                        )
+                        .frame(width: 220, height: 220)
+                        .scaleEffect(pulseScale)
+
+                    // Outer orbit ring
+                    Circle()
+                        .stroke(Color.cyan.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [8, 8]))
+                        .frame(width: 180, height: 180)
+                        .rotationEffect(.degrees(rotationAngle))
+
+                    // Inner orbit ring
+                    Circle()
+                        .stroke(Color.purple.opacity(0.7), style: StrokeStyle(lineWidth: 3, dash: [4, 6]))
+                        .frame(width: 120, height: 120)
+                        .rotationEffect(.degrees(-rotationAngle * 1.5))
+
+                    // Core icon
+                    Image(systemName: "globe.americas.fill")
+                        .font(.system(size: 54))
+                        .foregroundColor(.white)
+                        .shadow(color: .purple, radius: 15)
+                }
+                .padding(.vertical, 10)
+                .onAppear {
+                    withAnimation(Animation.linear(duration: 12).repeatForever(autoreverses: false)) {
+                        rotationAngle = 360
+                    }
+                    withAnimation(Animation.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
+                        pulseScale = 1.15
+                    }
+                }
+
+                // Panoramic Screens Grid (Liquid Galaxy Rig Display)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Экраны панорамы Liquid Galaxy:")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+
+                    ForEach(0..<galaxyScreens.count, id: \.self) { idx in
+                        let item = galaxyScreens[idx]
+                        Button(action: {
+                            selectedScreen = idx
+                        }) {
+                            HStack(spacing: 14) {
+                                Image(systemName: item.2)
+                                    .font(.system(size: 22))
+                                    .foregroundColor(item.3)
+                                    .frame(width: 44, height: 44)
+                                    .background(item.3.opacity(0.2))
+                                    .cornerRadius(12)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.0)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    Text(item.1)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Theme.textSecondary)
+                                }
+
+                                Spacer()
+
+                                if selectedScreen == idx {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(Theme.green)
+                                        .font(.system(size: 20))
+                                }
+                            }
+                            .padding(14)
+                            .background(selectedScreen == idx ? Theme.card.opacity(0.9) : Theme.card.opacity(0.5))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(selectedScreen == idx ? item.3 : Color.clear, lineWidth: 1.5)
+                            )
+                            .cornerRadius(14)
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+
+                // Controls
+                VStack(spacing: 12) {
+                    Button(action: {
+                        isSpinning.toggle()
+                        if isSpinning {
+                            withAnimation(Animation.linear(duration: 12).repeatForever(autoreverses: false)) {
+                                rotationAngle += 360
+                            }
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Text("Синхронизировать Liquid Galaxy Rig")
+                        }
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(LinearGradient(gradient: Gradient(colors: [Color.purple, Color.blue]), startPoint: .leading, endPoint: .trailing))
+                        .cornerRadius(14)
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.bottom, 30)
+            }
+        }
+        .background(Theme.darkBg)
+    }
+}
+
