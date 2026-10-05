@@ -35,11 +35,11 @@
         <string>remote-notification</string>
     </array>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Микрофон необходим для голосовых звонков в Vrot.fun</string>
+    <string>Микрофон необходим для голосовых звонков и записи голосовых сообщений в VROT</string>
     <key>NSCameraUsageDescription</key>
-    <string>Камера необходима для видеозвонков и отправки фото в чатах</string>
+    <string>Камера необходима для видеозвонков и фото в чатах VROT</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Доступ к галерее необходим для отправки изображений и аватаров</string>
+    <string>Галерея необходима для выбора фото и медиафайлов в VROT</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>
