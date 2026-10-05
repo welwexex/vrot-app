@@ -111,4 +111,8 @@ final class ApiService: NSObject, URLSessionDelegate {
     func post(path: String, body: [String: Any]) async throws -> [String: Any] {
         return (try await request(path: path, method: "POST", body: body)) as? [String: Any] ?? [:]
     }
+
+    func delete(path: String) async throws -> [String: Any] {
+        return (try await request(path: path, method: "DELETE")) as? [String: Any] ?? [:]
+    }
 }

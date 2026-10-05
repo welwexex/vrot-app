@@ -17,10 +17,22 @@ struct AuthView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var username = ""
-    @State private var birthDate = ""
+    @State private var selectedBirthDate = Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
     @State private var legalAccepted = false
     @State private var errorMessage = ""
     @State private var isLoading = false
+
+    private var maxBirthDate: Date {
+        Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
+    }
+
+    private var birthDateFormatted: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: selectedBirthDate)
+    }
 
     var body: some View {
         ZStack {
@@ -91,7 +103,33 @@ struct AuthView: View {
                         CustomSecureField(placeholder: "Пароль", text: $password)
 
                         if mode == "register" {
-                            CustomTextField(placeholder: "Дата рождения (ГГГГ-ММ-ДД)", text: $birthDate)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Дата рождения")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(Theme.textSecondary)
+
+                                HStack {
+                                    DatePicker(
+                                        "",
+                                        selection: $selectedBirthDate,
+                                        in: ...maxBirthDate,
+                                        displayedComponents: .date
+                                    )
+                                    .datePickerStyle(.compact)
+                                    .labelsHidden()
+                                    .colorScheme(.dark)
+
+                                    Spacer()
+
+                                    Text(birthDateFormatted)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(Theme.textPrimary)
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Theme.card)
+                                .cornerRadius(10)
+                            }
 
                             Toggle(isOn: $legalAccepted) {
                                 Text("Мне не менее 18 лет, принимаю правила")
@@ -144,7 +182,7 @@ struct AuthView: View {
                         "username": username.trimmingCharacters(in: .whitespacesAndNewlines),
                         "email": email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                         "password": password,
-                        "birthDate": birthDate.trimmingCharacters(in: .whitespacesAndNewlines),
+                        "birthDate": birthDateFormatted,
                         "legalAccepted": legalAccepted
                     ]
                     _ = try await ApiService.shared.post(path: "/api/auth/register", body: body)
