@@ -8,18 +8,28 @@
 
 /* Begin PBXBuildFile section */
 		A10000012E93400000000001 /* VrotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000012E93400000000001 /* VrotApp.swift */; };
-		A10000022E93400000000002 /* CallKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000022E93400000000002 /* CallKitManager.swift */; };
-		A10000032E93400000000003 /* WebContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000032E93400000000003 /* WebContainerView.swift */; };
-		A10000042E93400000000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000042E93400000000004 /* Assets.xcassets */; };
+		A10000022E93400000000002 /* CallManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000022E93400000000002 /* CallManager.swift */; };
+		A10000032E93400000000003 /* ApiService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000032E93400000000003 /* ApiService.swift */; };
+		A10000042E93400000000004 /* RealtimeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000042E93400000000004 /* RealtimeService.swift */; };
+		A10000052E93400000000005 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000052E93400000000005 /* AuthView.swift */; };
+		A10000062E93400000000006 /* MainTabsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000062E93400000000006 /* MainTabsView.swift */; };
+		A10000072E93400000000007 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000072E93400000000007 /* ChatView.swift */; };
+		A10000082E93400000000008 /* ActiveCallOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000082E93400000000008 /* ActiveCallOverlay.swift */; };
+		A10000092E93400000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000092E93400000000009 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		B10000002E93400000000000 /* VrotApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VrotApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000012E93400000000001 /* VrotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VrotApp.swift; sourceTree = "<group>"; };
-		B10000022E93400000000002 /* CallKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallKitManager.swift; sourceTree = "<group>"; };
-		B10000032E93400000000003 /* WebContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContainerView.swift; sourceTree = "<group>"; };
-		B10000042E93400000000004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B10000052E93400000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10000022E93400000000002 /* CallManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallManager.swift; sourceTree = "<group>"; };
+		B10000032E93400000000003 /* ApiService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiService.swift; sourceTree = "<group>"; };
+		B10000042E93400000000004 /* RealtimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeService.swift; sourceTree = "<group>"; };
+		B10000052E93400000000005 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		B10000062E93400000000006 /* MainTabsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabsView.swift; sourceTree = "<group>"; };
+		B10000072E93400000000007 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		B10000082E93400000000008 /* ActiveCallOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveCallOverlay.swift; sourceTree = "<group>"; };
+		B10000092E93400000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B10000102E93400000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,10 +55,15 @@
 			isa = PBXGroup;
 			children = (
 				B10000012E93400000000001 /* VrotApp.swift */,
-				B10000022E93400000000002 /* CallKitManager.swift */,
-				B10000032E93400000000003 /* WebContainerView.swift */,
-				B10000042E93400000000004 /* Assets.xcassets */,
-				B10000052E93400000000005 /* Info.plist */,
+				B10000022E93400000000002 /* CallManager.swift */,
+				B10000032E93400000000003 /* ApiService.swift */,
+				B10000042E93400000000004 /* RealtimeService.swift */,
+				B10000052E93400000000005 /* AuthView.swift */,
+				B10000062E93400000000006 /* MainTabsView.swift */,
+				B10000072E93400000000007 /* ChatView.swift */,
+				B10000082E93400000000008 /* ActiveCallOverlay.swift */,
+				B10000092E93400000000009 /* Assets.xcassets */,
+				B10000102E93400000000010 /* Info.plist */,
 			);
 			path = VrotApp;
 			sourceTree = "<group>";
@@ -119,7 +134,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000042E93400000000004 /* Assets.xcassets in Resources */,
+				A10000092E93400000000009 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,8 +146,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000012E93400000000001 /* VrotApp.swift in Sources */,
-				A10000022E93400000000002 /* CallKitManager.swift in Sources */,
-				A10000032E93400000000003 /* WebContainerView.swift in Sources */,
+				A10000022E93400000000002 /* CallManager.swift in Sources */,
+				A10000032E93400000000003 /* ApiService.swift in Sources */,
+				A10000042E93400000000004 /* RealtimeService.swift in Sources */,
+				A10000052E93400000000005 /* AuthView.swift in Sources */,
+				A10000062E93400000000006 /* MainTabsView.swift in Sources */,
+				A10000072E93400000000007 /* ChatView.swift in Sources */,
+				A10000082E93400000000008 /* ActiveCallOverlay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

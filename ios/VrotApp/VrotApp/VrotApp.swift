@@ -2,27 +2,37 @@ import SwiftUI
 
 @main
 struct VrotApp: App {
-    @StateObject private var callKit = CallKitManager.shared
+    @StateObject private var callManager = CallManager.shared
+    @State private var isLoggedIn = (SessionStore.shared.cookie() != nil)
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView(isLoggedIn: $isLoggedIn)
                 .preferredColorScheme(.dark)
-                .edgesIgnoringSafeArea(.all)
+                .onAppear {
+                    if isLoggedIn {
+                        RealtimeService.shared.connect()
+                    }
+                }
         }
     }
 }
 
-struct ContentView: View {
-    @StateObject private var callKit = CallKitManager.shared
+struct RootView: View {
+    @Binding var isLoggedIn: Bool
+    @ObservedObject var callManager = CallManager.shared
 
     var body: some View {
         ZStack {
-            Color(red: 30/255, green: 31/255, blue: 34/255)
-                .edgesIgnoringSafeArea(.all)
+            Theme.darkBg.ignoresSafeArea()
 
-            WebContainerView(url: URL(string: "https://vrot.fun")!)
-                .edgesIgnoringSafeArea(.all)
+            if callManager.state.active {
+                ActiveCallOverlay()
+            } else if isLoggedIn {
+                MainTabsView(isLoggedIn: $isLoggedIn)
+            } else {
+                AuthView(isLoggedIn: $isLoggedIn)
+            }
         }
     }
 }
