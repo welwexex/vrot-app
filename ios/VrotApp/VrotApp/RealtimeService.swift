@@ -18,6 +18,8 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
         // Socket.IO raw engine.io websocket url
         guard let url = URL(string: "wss://api.vrot.fun/socket.io/?EIO=4&transport=websocket") else { return }
         var request = URLRequest(url: url)
+        request.setValue("https://vrot.fun", forHTTPHeaderField: "Origin")
+        request.setValue("VrotApp-iOS/1.0", forHTTPHeaderField: "User-Agent")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
 
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: OperationQueue())
@@ -70,7 +72,23 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
     }
 
     private func handleIncomingText(_ text: String) {
-        // Socket.IO EIO packet parser: 42["event", data]
+        // Engine.IO Open handshake packet: 0{"sid":...} -> send Socket.IO CONNECT (40)
+        if text.hasPrefix("0") {
+            webSocketTask?.send(.string("40")) { error in
+                if let error = error {
+                    print("Failed to send socket.io connect packet: \(error.localizedDescription)")
+                }
+            }
+            return
+        }
+
+        // Engine.IO Ping (2) -> respond with Pong (3)
+        if text == "2" {
+            webSocketTask?.send(.string("3")) { _ in }
+            return
+        }
+
+        // Socket.IO event packet: 42["event", data]
         if text.hasPrefix("42") {
             let jsonString = String(text.dropFirst(2))
             guard let data = jsonString.data(using: .utf8),
@@ -82,15 +100,16 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
             DispatchQueue.main.async { [weak self] in
                 switch event {
                 case "call:incoming":
-                    let friendId = payload["friendId"] as? String ?? ""
-                    let name = payload["callerName"] as? String ?? (payload["username"] as? String ?? "Собеседник")
+                    let fromObj = payload["from"] as? [String: Any] ?? [:]
+                    let friendId = fromObj["id"] as? String ?? (payload["friendId"] as? String ?? "")
+                    let name = fromObj["displayName"] as? String ?? (fromObj["username"] as? String ?? (payload["username"] as? String ?? "Собеседник"))
                     let isVideo = payload["video"] as? Bool ?? false
                     CallManager.shared.reportIncomingCall(friendId: friendId, callerName: name, isVideo: isVideo)
                     CallManager.shared.sendLocalNotification(title: "Входящий вызов", body: "\(name) звонит вам в VROT")
 
-                case "call:peer-left":
+                case "call:peer-left", "call:cancelled":
                     CallManager.shared.state.status = "Собеседник завершил вызов"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         CallManager.shared.endCall()
                     }
 
@@ -109,14 +128,24 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                 default: break
                 }
             }
-        } else if text == "2" {
-            // Engine.IO Ping -> respond with Pong (3)
-            webSocketTask?.send(.string("3")) { _ in }
         }
     }
 
     func sendCallInvite(friendId: String, video: Bool) {
         let packet = "42[\"call:invite\",{\"friendId\":\"\(friendId)\",\"video\":\(video)}]"
-        webSocketTask?.send(.string(packet)) { _ in }
+        webSocketTask?.send(.string(packet)) { error in
+            if let error = error {
+                print("Failed to send call invite packet: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func sendCallCancel(friendId: String) {
+        let packet = "42[\"call:cancel\",{\"friendId\":\"\(friendId)\"}]"
+        webSocketTask?.send(.string(packet)) { error in
+            if let error = error {
+                print("Failed to send call cancel packet: \(error.localizedDescription)")
+            }
+        }
     }
 }

@@ -22,7 +22,7 @@ final class CallManager: NSObject, ObservableObject {
     private var timeoutTimer: Timer?
 
     override init() {
-        let config = CXProviderConfiguration(localizedName: "Vrot.fun")
+        let config = CXProviderConfiguration(localizedName: "VROT")
         config.supportsVideo = true
         config.maximumCallsPerCallGroup = 1
         config.supportedHandleTypes = [.generic]
@@ -125,6 +125,11 @@ final class CallManager: NSObject, ObservableObject {
 
     func endCall() {
         cancelTimeout()
+        let targetId = state.targetId
+        if !targetId.isEmpty {
+            RealtimeService.shared.sendCallCancel(friendId: targetId)
+        }
+
         guard let uuid = currentCallUUID else {
             DispatchQueue.main.async {
                 self.state = CallState()

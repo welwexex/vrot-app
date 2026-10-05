@@ -908,44 +908,256 @@ struct ProfileTabView: View {
     let user: [String: Any]
     let onLogout: () -> Void
 
+    @State private var showSettingsModal = false
+    @State private var displayName = ""
+    @State private var bio = ""
+    @State private var selectedStatus = "online"
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var isSaving = false
+    @State private var noticeMessage = ""
+
     var body: some View {
-        VStack(spacing: 24) {
-            let name = user["displayName"] as? String ?? (user["username"] as? String ?? "Пользователь")
-            let email = user["email"] as? String ?? ""
+        ScrollView {
+            VStack(spacing: 20) {
+                let name = user["displayName"] as? String ?? (user["username"] as? String ?? "Пользователь")
+                let username = user["username"] as? String ?? ""
+                let email = user["email"] as? String ?? ""
+                let userBio = user["bio"] as? String ?? ""
+                let isVerified = user["verified"] as? Bool ?? false
+                let isDonator = user["donator"] as? Bool ?? false
 
-            VStack(spacing: 12) {
-                Circle()
-                    .fill(Theme.accent)
-                    .frame(width: 80, height: 80)
-                    .overlay(
-                        Text(String(name.prefix(1)).uppercased())
-                            .font(.system(size: 32, weight: .bold))
+                // Header Card
+                VStack(spacing: 12) {
+                    Circle()
+                        .fill(Theme.accent)
+                        .frame(width: 88, height: 88)
+                        .overlay(
+                            Text(String(name.prefix(1)).uppercased())
+                                .font(.system(size: 36, weight: .bold))
+                                .foregroundColor(.white)
+                        )
+
+                    HStack(spacing: 6) {
+                        Text(name)
+                            .font(.system(size: 22, weight: .bold))
                             .foregroundColor(.white)
-                    )
 
-                Text(name)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(.white)
+                        if isVerified {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(Theme.accent)
+                        }
+                        if isDonator {
+                            Image(systemName: "star.fill")
+                                .foregroundColor(Color(red: 255/255, green: 215/255, blue: 0/255))
+                        }
+                    }
 
-                Text(email)
-                    .font(.system(size: 14))
-                    .foregroundColor(Theme.textSecondary)
-            }
-            .padding(.top, 40)
+                    Text("@\(username)")
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textSecondary)
 
-            Spacer()
+                    Text(email)
+                        .font(.system(size: 13))
+                        .foregroundColor(Theme.textSecondary.opacity(0.8))
 
-            Button(action: onLogout) {
-                Text("Выйти из аккаунта")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Theme.red)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Theme.card)
+                    if !userBio.isEmpty {
+                        Text(userBio)
+                            .font(.system(size: 14))
+                            .foregroundColor(Theme.textPrimary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                    }
+                }
+                .padding(.vertical, 24)
+                .frame(maxWidth: .infinity)
+                .background(Theme.surface)
+                .cornerRadius(16)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+
+                if !noticeMessage.isEmpty {
+                    Text(noticeMessage)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                        .padding(.horizontal, 16)
+                }
+
+                // Settings Section
+                VStack(spacing: 12) {
+                    Text("НАСТРОЙКИ ПРОФИЛЯ")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button(action: {
+                        displayName = user["displayName"] as? String ?? (user["username"] as? String ?? "")
+                        bio = user["bio"] as? String ?? ""
+                        selectedStatus = user["status"] as? String ?? "online"
+                        showSettingsModal = true
+                    }) {
+                        HStack {
+                            Image(systemName: "person.crop.circle.badge.checkmark")
+                                .font(.system(size: 18))
+                                .foregroundColor(Theme.accent)
+                            Text("Редактировать профиль и статус")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14))
+                                .foregroundColor(Theme.textSecondary)
+                        }
+                        .padding(14)
+                        .background(Theme.surface)
+                        .cornerRadius(12)
+                    }
+
+                    // System Notifications / Call status info
+                    HStack {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(Theme.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Уведомления и звонки")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white)
+                            Text("CallKit и WebSocket звонки активны")
+                                .font(.system(size: 12))
+                                .foregroundColor(Theme.textSecondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(Theme.surface)
                     .cornerRadius(12)
+                }
+                .padding(.horizontal, 16)
+
+                Spacer(minLength: 20)
+
+                // Logout Button
+                Button(action: onLogout) {
+                    Text("Выйти из аккаунта")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Theme.red)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(Theme.card)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 30)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+        }
+        .sheet(isPresented: $showSettingsModal) {
+            ZStack {
+                Theme.surface.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("Настройки профиля")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.top, 10)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Отображаемое имя")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.textSecondary)
+                            CustomTextField(placeholder: "Ваше имя", text: $displayName)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("О себе (био)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.textSecondary)
+                            CustomTextField(placeholder: "Напишите что-нибудь о себе", text: $bio)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Статус")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.textSecondary)
+
+                            Picker("Статус", selection: $selectedStatus) {
+                                Text("В сети").tag("online")
+                                Text("Не активен").tag("idle")
+                                Text("Не беспокоить").tag("dnd")
+                                Text("Невидимый").tag("offline")
+                            }
+                            .pickerStyle(.segmented)
+                            .colorScheme(.dark)
+                        }
+
+                        Divider().background(Theme.card).padding(.vertical, 8)
+
+                        Text("Смена пароля (необязательно)")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+
+                        CustomSecureField(placeholder: "Текущий пароль", text: $currentPassword)
+                        CustomSecureField(placeholder: "Новый пароль (мин. 12 симв.)", text: $newPassword)
+
+                        Button(action: saveSettings) {
+                            if isSaving {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Text("Сохранить изменения")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(Theme.accent)
+                        .cornerRadius(12)
+                        .disabled(isSaving)
+                        .padding(.top, 10)
+                    }
+                    .padding(24)
+                }
+            }
+        }
+    }
+
+    private func saveSettings() {
+        isSaving = true
+        noticeMessage = ""
+
+        Task {
+            do {
+                let uname = user["username"] as? String ?? ""
+                let body: [String: Any] = [
+                    "username": uname,
+                    "displayName": displayName.trimmingCharacters(in: .whitespaces),
+                    "bio": bio.trimmingCharacters(in: .whitespaces),
+                    "status": selectedStatus
+                ]
+                _ = try await ApiService.shared.put(path: "/api/profile", body: body)
+
+                if !currentPassword.isEmpty && !newPassword.isEmpty {
+                    _ = try await ApiService.shared.put(path: "/api/profile/password", body: [
+                        "currentPassword": currentPassword,
+                        "newPassword": newPassword
+                    ])
+                }
+
+                await MainActor.run {
+                    self.isSaving = false
+                    self.showSettingsModal = false
+                    self.noticeMessage = "Настройки успешно сохранены!"
+                    self.currentPassword = ""
+                    self.newPassword = ""
+                }
+            } catch {
+                await MainActor.run {
+                    self.isSaving = false
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
         }
     }
 }

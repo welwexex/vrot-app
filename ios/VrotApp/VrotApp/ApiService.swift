@@ -88,10 +88,17 @@ final class ApiService: NSObject, URLSessionDelegate {
         }
 
         if http.statusCode < 200 || http.statusCode >= 300 {
-            var errMsg = "Ошибка сервера \(http.statusCode)"
-            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let err = obj["error"] as? String {
-                errMsg = err
+            var errMsg = "Ошибка сервера (\(http.statusCode))"
+            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let err = obj["error"] as? String {
+                    errMsg = err
+                    if let fields = obj["fields"] as? [String: [String]], !fields.isEmpty {
+                        let details = fields.compactMap { "\($0.key): \($0.value.joined(separator: ", "))" }.joined(separator: "; ")
+                        errMsg += " (\(details))"
+                    }
+                } else if let msg = obj["message"] as? String {
+                    errMsg = msg
+                }
             }
             throw APIError.serverError(http.statusCode, errMsg)
         }
@@ -110,6 +117,10 @@ final class ApiService: NSObject, URLSessionDelegate {
 
     func post(path: String, body: [String: Any]) async throws -> [String: Any] {
         return (try await request(path: path, method: "POST", body: body)) as? [String: Any] ?? [:]
+    }
+
+    func put(path: String, body: [String: Any]) async throws -> [String: Any] {
+        return (try await request(path: path, method: "PUT", body: body)) as? [String: Any] ?? [:]
     }
 
     func delete(path: String) async throws -> [String: Any] {

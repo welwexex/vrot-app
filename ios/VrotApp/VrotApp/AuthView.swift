@@ -44,8 +44,8 @@ struct AuthView: View {
 
                     // Logo & Slogan
                     VStack(spacing: 8) {
-                        Text("VROT.FUN")
-                            .font(.system(size: 32, weight: .black, design: .rounded))
+                        Text("VROT")
+                            .font(.system(size: 36, weight: .black, design: .rounded))
                             .foregroundColor(Theme.accent)
                         Text("Своё место для своих.")
                             .font(.system(size: 14))
@@ -94,11 +94,13 @@ struct AuthView: View {
 
                         if mode == "register" {
                             CustomTextField(placeholder: "Имя пользователя", text: $username)
+                            CustomTextField(placeholder: "Email", text: $email)
+                                .keyboardType(.emailAddress)
+                                .autocapitalization(.none)
+                        } else {
+                            CustomTextField(placeholder: "Email или имя пользователя", text: $email)
+                                .autocapitalization(.none)
                         }
-
-                        CustomTextField(placeholder: "Email", text: $email)
-                            .keyboardType(.emailAddress)
-                            .autocapitalization(.none)
 
                         CustomSecureField(placeholder: "Пароль", text: $password)
 
