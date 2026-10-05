@@ -31,7 +31,7 @@ struct MainTabsView: View {
             if let friend = activeChatFriend {
                 ChatView(friend: friend, onBack: { activeChatFriend = nil })
             } else if let comm = activeCommunity {
-                CommunityDetailView(community: comm, onBack: { activeCommunity = nil })
+                CommunityDetailView(community: comm, onBack: { activeCommunity = nil; loadData() })
             } else {
                 // The system tab bar receives native Liquid Glass on iOS 26.
                 TabView(selection: $selectedTab) {
@@ -786,25 +786,8 @@ struct CommunitiesTabView: View {
                         VStack(spacing: 12) {
                             ForEach(communities, id: \.description) { comm in
                                 let name = comm["name"] as? String ?? "С"
-                                let avatarUrl = comm["avatarUrl"] as? String
-
                                 Button(action: { onSelectCommunity(comm) }) {
-                                    ZStack {
-                                        if let aUrl = avatarUrl, !aUrl.isEmpty {
-                                            AsyncImage(url: URL(string: ApiService.shared.baseURL + aUrl)) { img in
-                                                img.resizable().scaledToFill()
-                                            } placeholder: {
-                                                Color.accentColor.opacity(0.4)
-                                            }
-                                        } else {
-                                            LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                            Text(String(name.prefix(1)).uppercased())
-                                                .font(.system(size: 18, weight: .bold))
-                                                .foregroundColor(Theme.textPrimary)
-                                        }
-                                    }
-                                    .frame(width: 48, height: 48)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    CommunityAvatarView(url: comm["avatarUrl"] as? String, name: name, size: 48)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 16)
                                             .stroke(Color.white.opacity(0.25), lineWidth: 1)
@@ -843,6 +826,7 @@ struct CommunitiesTabView: View {
 
                                 Button(action: { onSelectCommunity(comm) }) {
                                     HStack(spacing: 12) {
+                                        CommunityAvatarView(url: comm["avatarUrl"] as? String, name: name, size: 42)
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack(spacing: 6) {
                                                 Text(name)
