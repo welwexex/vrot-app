@@ -1,0 +1,54 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Build unsigned .app
+        run: |
+          cd ios/VrotApp
+          xcodebuild clean build \
+            -project VrotApp.xcodeproj \
+            -scheme VrotApp \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CONFIGURATION_BUILD_DIR=build/Release-iphoneos
+
+      - name: Package into .ipa
+        run: |
+          cd ios/VrotApp
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/VrotApp.app Payload/
+          zip -r VrotApp.ipa Payload
+          mkdir -p ../../release
+          cp VrotApp.ipa ../../release/vrot.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrot-ipa
+          path: ios/VrotApp/VrotApp.ipa
+          retention-days: 14
+
+      - name: Deploy to VROT Server (Optional)
+        if: env.DEPLOY_SSH_KEY != ''
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          echo "Deploying to server if secrets are set..."
+          # scp -o StrictHostKeyChecking=no ios/VrotApp/VrotApp.ipa root@${DEPLOY_HOST}:/var/www/html/vrot.ipa
