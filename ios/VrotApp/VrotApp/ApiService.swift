@@ -10,11 +10,30 @@ final class SessionStore {
     }
 
     func cookie() -> String? {
-        return UserDefaults.standard.string(forKey: key)
+        if let saved = UserDefaults.standard.string(forKey: key), !saved.isEmpty {
+            return saved
+        }
+        if let cookies = HTTPCookieStorage.shared.cookies {
+            for c in cookies {
+                if c.name == "vrot_session" {
+                    let formatted = "\(c.name)=\(c.value)"
+                    UserDefaults.standard.set(formatted, forKey: key)
+                    return formatted
+                }
+            }
+        }
+        return nil
     }
 
     func clear() {
         UserDefaults.standard.removeObject(forKey: key)
+        if let cookies = HTTPCookieStorage.shared.cookies {
+            for c in cookies {
+                if c.name == "vrot_session" {
+                    HTTPCookieStorage.shared.deleteCookie(c)
+                }
+            }
+        }
     }
 }
 
@@ -85,6 +104,10 @@ final class ApiService: NSObject, URLSessionDelegate {
             if let first = setCookie.components(separatedBy: ";").first, first.hasPrefix("vrot_session=") {
                 SessionStore.shared.save(cookie: first)
             }
+        } else if let url = req.url, let cookies = HTTPCookieStorage.shared.cookies(for: url) {
+            for c in cookies where c.name == "vrot_session" {
+                SessionStore.shared.save(cookie: "\(c.name)=\(c.value)")
+            }
         }
 
         if http.statusCode < 200 || http.statusCode >= 300 {
@@ -125,5 +148,26 @@ final class ApiService: NSObject, URLSessionDelegate {
 
     func delete(path: String) async throws -> [String: Any] {
         return (try await request(path: path, method: "DELETE")) as? [String: Any] ?? [:]
+    }
+
+    func uploadBinary(path: String, data: Data, mimeType: String, fileName: String) async throws -> [String: Any] {
+        guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("https://vrot.fun", forHTTPHeaderField: "Origin")
+        req.setValue("VrotApp-iOS/1.0", forHTTPHeaderField: "User-Agent")
+        req.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        req.setValue(fileName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileName, forHTTPHeaderField: "X-File-Name")
+        if let cookie = SessionStore.shared.cookie() {
+            req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        req.httpBody = data
+
+        let (respData, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIError.decodingError }
+        if http.statusCode < 200 || http.statusCode >= 300 {
+            throw APIError.serverError(http.statusCode, "Ошибка загрузки файла")
+        }
+        return (try? JSONSerialization.jsonObject(with: respData) as? [String: Any]) ?? [:]
     }
 }
