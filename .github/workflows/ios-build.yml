@@ -7,13 +7,21 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Select Xcode Version
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        run: |
+          echo "Available Xcode versions:"
+          ls -d /Applications/Xcode* || true
+          if [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          elif [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          fi
+          xcodebuild -version
 
       - name: Build unsigned .app
         run: |
@@ -43,12 +51,3 @@ jobs:
           name: vrot-ipa
           path: ios/VrotApp/VrotApp.ipa
           retention-days: 14
-
-      - name: Deploy to VROT Server (Optional)
-        if: env.DEPLOY_SSH_KEY != ''
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        run: |
-          echo "Deploying to server if secrets are set..."
-          # scp -o StrictHostKeyChecking=no ios/VrotApp/VrotApp.ipa root@${DEPLOY_HOST}:/var/www/html/vrot.ipa
