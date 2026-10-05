@@ -43,7 +43,7 @@ struct MainTabsView: View {
                         ProfileTabView(user: currentUser, onLogout: logout)
                             .tag(2)
 
-                        LiquidGalaxyTabView()
+                        LiquidGlassTabView()
                             .tag(3)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
@@ -56,7 +56,7 @@ struct MainTabsView: View {
                         TabBarButton(icon: "person.3.fill", title: "Сообщества", isSelected: selectedTab == 1) {
                             selectedTab = 1
                         }
-                        TabBarButton(icon: "sparkles", title: "Galaxy", isSelected: selectedTab == 3) {
+                        TabBarButton(icon: "drop.fill", title: "Glass", isSelected: selectedTab == 3) {
                             selectedTab = 3
                         }
                         TabBarButton(icon: "person.crop.circle.fill", title: "Профиль", isSelected: selectedTab == 2) {
@@ -1168,17 +1168,16 @@ struct ProfileTabView: View {
     }
 }
 
-struct LiquidGalaxyTabView: View {
-    @State private var rotationAngle: Double = 0
-    @State private var pulseScale: CGFloat = 1.0
-    @State private var selectedScreen = 0
-    @State private var isSpinning = true
+struct LiquidGlassTabView: View {
+    @State private var wavePhase: Double = 0
+    @State private var selectedThemeIndex = 0
+    @State private var blurIntensity: Double = 25.0
+    @State private var glassRefraction: Double = 0.7
 
-    let galaxyScreens = [
-        ("Главный купол (Rig-1)", "Звездная система VROT & Орион", "globe.europe.africa.fill", Color.purple),
-        ("Левый экран (Rig-2)", "Панорама туманности Андромеды", "sparkles", Color.cyan),
-        ("Правый экран (Rig-3)", "Космический радар связи", "antenna.radiowaves.left.and.right", Color.blue),
-        ("Нижняя консоль (Kiosk)", "Liquid Galaxy Master Controller", "display.2", Color.indigo)
+    let glassThemes = [
+        ("Неоновый Хрусталь", "Глубокое преломление и бирюзовые блики", [Color.cyan.opacity(0.8), Color.blue.opacity(0.6), Color.purple.opacity(0.7)]),
+        ("Жидкое Золото", "Теплый янтарный и золотистый стеклянный градиент", [Color.orange.opacity(0.8), Color.pink.opacity(0.6), Color.purple.opacity(0.7)]),
+        ("Изумрудный Лед", "Скандинавский холодный аквамарин и морозный глянец", [Color.green.opacity(0.7), Color.teal.opacity(0.8), Color.blue.opacity(0.6)])
     ]
 
     var body: some View {
@@ -1186,85 +1185,136 @@ struct LiquidGalaxyTabView: View {
             VStack(spacing: 24) {
                 // Header
                 VStack(spacing: 8) {
-                    HStack {
+                    HStack(spacing: 10) {
+                        Image(systemName: "drop.fill")
+                            .font(.system(size: 26))
+                            .foregroundStyle(LinearGradient(colors: [.cyan, .white, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        Text("LIQUID GLASS")
+                            .font(.system(size: 26, weight: .black))
+                            .foregroundStyle(LinearGradient(colors: [.white, Color(white: 0.85)], startPoint: .top, endPoint: .bottom))
                         Image(systemName: "sparkles")
-                            .foregroundColor(.purple)
-                            .font(.system(size: 24))
-                        Text("LIQUID GALAXY")
-                            .font(.system(size: 24, weight: .black))
-                            .foregroundColor(.white)
-                        Image(systemName: "sparkles")
-                            .foregroundColor(.purple)
-                            .font(.system(size: 24))
+                            .font(.system(size: 22))
+                            .foregroundColor(.cyan)
                     }
 
-                    Text("Панорамная многоэкранная система визуализации")
+                    Text("Интерактивный движок Glassmorphism & Жидкого Стекла")
                         .font(.system(size: 13))
                         .foregroundColor(Theme.textSecondary)
                 }
                 .padding(.top, 24)
 
-                // Interactive Galaxy Orb
+                // The Big Liquid Glass Canvas
                 ZStack {
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                gradient: Gradient(colors: [Color.purple.opacity(0.8), Color.blue.opacity(0.4), Color.clear]),
-                                center: .center,
-                                startRadius: 10,
-                                endRadius: 120
-                            )
-                        )
-                        .frame(width: 220, height: 220)
-                        .scaleEffect(pulseScale)
+                    // Fluid Background Orbs
+                    let currentColors = glassThemes[selectedThemeIndex].2
 
-                    // Outer orbit ring
                     Circle()
-                        .stroke(Color.cyan.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [8, 8]))
+                        .fill(currentColors[0])
+                        .frame(width: 160, height: 160)
+                        .blur(radius: CGFloat(blurIntensity))
+                        .offset(x: -60 + sin(wavePhase) * 35, y: -40 + cos(wavePhase) * 25)
+
+                    Circle()
+                        .fill(currentColors[1])
                         .frame(width: 180, height: 180)
-                        .rotationEffect(.degrees(rotationAngle))
+                        .blur(radius: CGFloat(blurIntensity))
+                        .offset(x: 60 - cos(wavePhase) * 40, y: 30 + sin(wavePhase) * 30)
 
-                    // Inner orbit ring
                     Circle()
-                        .stroke(Color.purple.opacity(0.7), style: StrokeStyle(lineWidth: 3, dash: [4, 6]))
-                        .frame(width: 120, height: 120)
-                        .rotationEffect(.degrees(-rotationAngle * 1.5))
+                        .fill(currentColors[2])
+                        .frame(width: 140, height: 140)
+                        .blur(radius: CGFloat(blurIntensity + 10))
+                        .offset(x: sin(wavePhase * 1.5) * 40, y: -30)
 
-                    // Core icon
-                    Image(systemName: "globe.americas.fill")
-                        .font(.system(size: 54))
-                        .foregroundColor(.white)
-                        .shadow(color: .purple, radius: 15)
+                    // Frosted Glass Layer
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(Color.white.opacity(0.12))
+                        .background(
+                            Color.black.opacity(0.2)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.6), Color.white.opacity(0.1), Color.clear],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1.5
+                                )
+                        )
+                        .frame(height: 200)
+                        .padding(.horizontal, 20)
+                        .shadow(color: Color.black.opacity(0.35), radius: 20, x: 0, y: 10)
+                        .overlay(
+                            VStack(spacing: 12) {
+                                HStack {
+                                    Circle()
+                                        .fill(Color.white.opacity(0.3))
+                                        .frame(width: 12, height: 12)
+                                    Circle()
+                                        .fill(Color.white.opacity(0.3))
+                                        .frame(width: 12, height: 12)
+                                    Circle()
+                                        .fill(Color.white.opacity(0.3))
+                                        .frame(width: 12, height: 12)
+                                    Spacer()
+                                    Text("Ultra Glass v2.4")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(Color.white.opacity(0.75))
+                                }
+                                .padding(.horizontal, 40)
+
+                                Spacer()
+
+                                Image(systemName: "water.waves")
+                                    .font(.system(size: 42))
+                                    .foregroundColor(.white)
+                                    .shadow(color: .cyan, radius: 10)
+
+                                Text(glassThemes[selectedThemeIndex].0)
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(.white)
+
+                                Text("Плавное преломление света и динамический размыв")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Color.white.opacity(0.8))
+
+                                Spacer()
+                            }
+                            .padding(.vertical, 16)
+                        )
                 }
-                .padding(.vertical, 10)
+                .frame(height: 240)
                 .onAppear {
-                    withAnimation(Animation.linear(duration: 12).repeatForever(autoreverses: false)) {
-                        rotationAngle = 360
-                    }
-                    withAnimation(Animation.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
-                        pulseScale = 1.15
+                    withAnimation(Animation.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
+                        wavePhase = .pi * 2
                     }
                 }
 
-                // Panoramic Screens Grid (Liquid Galaxy Rig Display)
+                // Glass Theme Selectors
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Экраны панорамы Liquid Galaxy:")
+                    Text("Выберите стиль Liquid Glass:")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
 
-                    ForEach(0..<galaxyScreens.count, id: \.self) { idx in
-                        let item = galaxyScreens[idx]
+                    ForEach(0..<glassThemes.count, id: \.self) { idx in
+                        let item = glassThemes[idx]
                         Button(action: {
-                            selectedScreen = idx
+                            withAnimation(.spring()) {
+                                selectedThemeIndex = idx
+                            }
                         }) {
                             HStack(spacing: 14) {
-                                Image(systemName: item.2)
-                                    .font(.system(size: 22))
-                                    .foregroundColor(item.3)
-                                    .frame(width: 44, height: 44)
-                                    .background(item.3.opacity(0.2))
-                                    .cornerRadius(12)
+                                Circle()
+                                    .fill(
+                                        LinearGradient(colors: item.2, startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    )
+                                    .frame(width: 40, height: 40)
+                                    .overlay(
+                                        Circle().stroke(Color.white.opacity(0.3), lineWidth: 1)
+                                    )
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(item.0)
@@ -1277,47 +1327,99 @@ struct LiquidGalaxyTabView: View {
 
                                 Spacer()
 
-                                if selectedScreen == idx {
+                                if selectedThemeIndex == idx {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundColor(Theme.green)
                                         .font(.system(size: 20))
                                 }
                             }
                             .padding(14)
-                            .background(selectedScreen == idx ? Theme.card.opacity(0.9) : Theme.card.opacity(0.5))
+                            .background(Color.white.opacity(selectedThemeIndex == idx ? 0.12 : 0.05))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .stroke(selectedScreen == idx ? item.3 : Color.clear, lineWidth: 1.5)
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(selectedThemeIndex == idx ? Color.white.opacity(0.4) : Color.white.opacity(0.08), lineWidth: 1)
                             )
-                            .cornerRadius(14)
+                            .cornerRadius(16)
                         }
                         .padding(.horizontal, 16)
                     }
                 }
 
-                // Controls
-                VStack(spacing: 12) {
-                    Button(action: {
-                        isSpinning.toggle()
-                        if isSpinning {
-                            withAnimation(Animation.linear(duration: 12).repeatForever(autoreverses: false)) {
-                                rotationAngle += 360
-                            }
-                        }
-                    }) {
-                        HStack {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                            Text("Синхронизировать Liquid Galaxy Rig")
-                        }
-                        .font(.system(size: 15, weight: .bold))
+                // Glass Sliders
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Параметры стекла:")
+                        .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(LinearGradient(gradient: Gradient(colors: [Color.purple, Color.blue]), startPoint: .leading, endPoint: .trailing))
-                        .cornerRadius(14)
+                        .padding(.horizontal, 16)
+
+                    VStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Плотность размытия (Frost Blur)")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(Theme.textPrimary)
+                                Spacer()
+                                Text("\(Int(blurIntensity)) px")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.cyan)
+                            }
+                            Slider(value: $blurIntensity, in: 5...60, step: 1)
+                                .tint(.cyan)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Коэффициент отражения (Refraction)")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(Theme.textPrimary)
+                                Spacer()
+                                Text(String(format: "%.1f", glassRefraction))
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.cyan)
+                            }
+                            Slider(value: $glassRefraction, in: 0.1...1.0, step: 0.05)
+                                .tint(.cyan)
+                        }
                     }
+                    .padding(18)
+                    .background(Color.white.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .cornerRadius(16)
                     .padding(.horizontal, 16)
                 }
+
+                // Bottom Action
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.8)) {
+                        wavePhase += 3.14
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "sparkle")
+                        Text("Перелить Liquid Glass")
+                    }
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.cyan.opacity(0.85), Color.blue.opacity(0.85)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                    )
+                    .cornerRadius(14)
+                    .shadow(color: .cyan.opacity(0.3), radius: 10, y: 5)
+                }
+                .padding(.horizontal, 16)
                 .padding(.bottom, 30)
             }
         }
