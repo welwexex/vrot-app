@@ -419,7 +419,7 @@ struct ChatView: View {
 
         Task {
             do {
-                let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": text])
+                let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": text, "clientMessageId": UUID().uuidString])
                 await MainActor.run {
                     self.messages = deduplicatedMessages(self.messages + [sent])
                 }
@@ -449,7 +449,8 @@ struct ChatView: View {
                     path: "/api/friends/\(id)/messages",
                     body: [
                         "content": "🎤 Голосовое сообщение",
-                        "attachmentId": attId
+                        "attachmentId": attId,
+                        "clientMessageId": UUID().uuidString
                     ]
                 )
                 await MainActor.run {
@@ -467,7 +468,7 @@ struct ChatView: View {
         do {
             let uploaded = try await ApiService.shared.uploadBinary(path: "/api/uploads", data: data, mimeType: mime, fileName: name)
             guard let attachmentId = uploaded["id"] as? String else { throw APIError.decodingError }
-            let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": "", "attachmentId": attachmentId])
+            let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": "", "attachmentId": attachmentId, "clientMessageId": UUID().uuidString])
             messages = deduplicatedMessages(messages + [sent])
             attachmentError = ""
         } catch { attachmentError = error.localizedDescription }

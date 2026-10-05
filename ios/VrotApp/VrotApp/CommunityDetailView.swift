@@ -494,7 +494,7 @@ struct ChannelChatView: View {
 
         Task {
             do {
-                let sent = try await ApiService.shared.post(path: "/api/channels/\(id)/messages", body: ["content": text])
+                let sent = try await ApiService.shared.post(path: "/api/channels/\(id)/messages", body: ["content": text, "clientMessageId": UUID().uuidString])
                 await MainActor.run { self.messages = deduplicatedMessages(self.messages + [sent]) }
             } catch {
                 print("Failed to send channel message: \(error)")
