@@ -371,7 +371,6 @@ struct FriendsTabView: View {
             }
         }
     }
-    }
 
     @ViewBuilder
     private func friendsListView(list: [[String: Any]], emptyText: String) -> some View {
@@ -785,86 +784,9 @@ struct CreateGroupSheet: View {
             Theme.darkBg.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 18) {
-                // Header
-                HStack {
-                    Text("Создать группу")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(Theme.textPrimary)
-                    Spacer()
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22))
-                            .foregroundColor(Theme.textSecondary)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 20)
-
-                // Group Name
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("НАЗВАНИЕ ГРУППЫ")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(Theme.textSecondary)
-                        .padding(.horizontal, 16)
-
-                    CustomTextField(placeholder: "Например: Друзья или Тусовка", text: $groupName)
-                        .padding(.horizontal, 16)
-                }
-
-                // Friends Selector
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("ДОБАВИТЬ ДРУЗЕЙ (\(selectedFriendIds.count))")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(Theme.textSecondary)
-                        .padding(.horizontal, 16)
-
-                    if acceptedFriends.isEmpty {
-                        Text("У вас пока нет друзей для добавления в группу")
-                            .font(.system(size: 13))
-                            .foregroundColor(Theme.textSecondary)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 8) {
-                                ForEach(acceptedFriends, id: \.description) { f in
-                                    let fid = f["id"] as? String ?? ""
-                                    let name = f["displayName"] as? String ?? (f["username"] as? String ?? "Друг")
-                                    let isSelected = selectedFriendIds.contains(fid)
-
-                                    HStack(spacing: 12) {
-                                        AvatarBadgeView(avatarUrl: f["avatarUrl"] as? String, name: name, size: 36)
-
-                                        Text(name)
-                                            .font(.system(size: 15, weight: .medium))
-                                            .foregroundColor(Theme.textPrimary)
-
-                                        Spacer()
-
-                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 20))
-                                            .foregroundColor(isSelected ? Theme.accent : Theme.textSecondary)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(Theme.glassCard)
-                                    .cornerRadius(12)
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        if isSelected {
-                                            selectedFriendIds.remove(fid)
-                                        } else {
-                                            selectedFriendIds.insert(fid)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                        .frame(maxHeight: 280)
-                    }
-                }
+                headerView
+                groupNameSection
+                friendsSelectorSection
 
                 if !errorMessage.isEmpty {
                     Text(errorMessage)
@@ -874,31 +796,117 @@ struct CreateGroupSheet: View {
                 }
 
                 Spacer()
-
-                // Create Button
-                Button(action: createGroup) {
-                    HStack {
-                        Spacer()
-                        if isCreating {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        } else {
-                            Text("Создать группу")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 14)
-                    .background(groupName.trimmingCharacters(in: .whitespaces).isEmpty ? Theme.card : Theme.accent)
-                    .cornerRadius(14)
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.2), lineWidth: 1))
-                }
-                .disabled(groupName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 24)
+                createButton
             }
         }
+    }
+
+    private var headerView: some View {
+        HStack {
+            Text("Создать группу")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(Theme.textPrimary)
+            Spacer()
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(Theme.textSecondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 20)
+    }
+
+    private var groupNameSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("НАЗВАНИЕ ГРУППЫ")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Theme.textSecondary)
+                .padding(.horizontal, 16)
+
+            CustomTextField(placeholder: "Например: Друзья или Тусовка", text: $groupName)
+                .padding(.horizontal, 16)
+        }
+    }
+
+    private var friendsSelectorSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ДОБАВИТЬ ДРУЗЕЙ (\(selectedFriendIds.count))")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Theme.textSecondary)
+                .padding(.horizontal, 16)
+
+            if acceptedFriends.isEmpty {
+                Text("У вас пока нет друзей для добавления в группу")
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(acceptedFriends, id: \.description) { f in
+                            let fid = f["id"] as? String ?? ""
+                            let name = f["displayName"] as? String ?? (f["username"] as? String ?? "Друг")
+                            let isSelected = selectedFriendIds.contains(fid)
+
+                            HStack(spacing: 12) {
+                                AvatarBadgeView(avatarUrl: f["avatarUrl"] as? String, name: name, size: 36)
+
+                                Text(name)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(Theme.textPrimary)
+
+                                Spacer()
+
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(isSelected ? Theme.accent : Theme.textSecondary)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Theme.glassCard)
+                            .cornerRadius(12)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if isSelected {
+                                    selectedFriendIds.remove(fid)
+                                } else {
+                                    selectedFriendIds.insert(fid)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .frame(maxHeight: 280)
+            }
+        }
+    }
+
+    private var createButton: some View {
+        Button(action: createGroup) {
+            HStack {
+                Spacer()
+                if isCreating {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                } else {
+                    Text("Создать группу")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 14)
+            .background(groupName.trimmingCharacters(in: .whitespaces).isEmpty ? Theme.card : Theme.accent)
+            .cornerRadius(14)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.2), lineWidth: 1))
+        }
+        .disabled(groupName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 24)
     }
 
     private func createGroup() {
