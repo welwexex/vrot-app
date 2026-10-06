@@ -475,6 +475,139 @@ struct ChatView: View {
     }
 }
 
+struct VoiceMessageBubbleView: View {
+    let isMe: Bool
+    let msgId: String
+    let attUrl: String
+    @ObservedObject var player: AudioPlayerManager
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: {
+                player.togglePlay(attachmentUrl: attUrl, messageId: msgId)
+            }) {
+                Image(systemName: (player.currentlyPlayingId == msgId && player.isPlaying) ? "pause.fill" : "play.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Theme.textPrimary)
+                    .padding(10)
+                    .background(isMe ? Color.white.opacity(0.25) : Theme.accent)
+                    .clipShape(Circle())
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.85))
+                    Text("Голосовое сообщение")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Theme.textPrimary)
+                }
+
+                if player.currentlyPlayingId == msgId {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.25))
+                                .frame(height: 4)
+                                .cornerRadius(2)
+                            Rectangle()
+                                .fill(Color.white)
+                                .frame(width: geo.size.width * CGFloat(player.progress), height: 4)
+                                .cornerRadius(2)
+                        }
+                    }
+                    .frame(height: 4)
+                }
+            }
+            .frame(minWidth: 140)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            isMe ?
+            LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+        .cornerRadius(18)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
+        )
+    }
+}
+
+struct TextMessageBubbleView: View {
+    let text: String
+    let isMe: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 15))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                isMe ?
+                LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+            .foregroundColor(Theme.textPrimary)
+            .cornerRadius(18)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
+            )
+            .frame(maxWidth: 280, alignment: isMe ? .trailing : .leading)
+    }
+}
+
+struct MessageInlineKeyboardView: View {
+    let inlineKeyboard: [[[String: Any]]]
+    let authorId: String
+    let messageId: String
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(0..<inlineKeyboard.count, id: \.self) { rowIdx in
+                let row = inlineKeyboard[rowIdx]
+                HStack(spacing: 6) {
+                    ForEach(0..<row.count, id: \.self) { btnIdx in
+                        let btn = row[btnIdx]
+                        let btnText = btn["text"] as? String ?? ""
+                        let btnUrl = btn["url"] as? String
+                        let callbackData = btn["callback_data"] as? String
+
+                        Button(action: {
+                            if let urlStr = btnUrl, let url = URL(string: urlStr) {
+                                UIApplication.shared.open(url)
+                            } else if let cb = callbackData {
+                                Task {
+                                    _ = try? await ApiService.shared.post(path: "/api/bots/callback", body: [
+                                        "messageId": messageId,
+                                        "authorId": authorId,
+                                        "callbackData": cb
+                                    ])
+                                }
+                            }
+                        }) {
+                            Text(btnText)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .frame(maxWidth: .infinity)
+                                .background(Theme.glassCard)
+                                .cornerRadius(12)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: 280)
+    }
+}
+
 struct ChatMessageItemView: View {
     let msg: [String: Any]
     let idx: Int
@@ -485,6 +618,9 @@ struct ChatMessageItemView: View {
         let text = msg["content"] as? String ?? ""
         let attachment = msg["attachment"] as? [String: Any]
         let msgId = msg["id"] as? String ?? "\(idx)"
+        let authorId = (msg["author"] as? [String: Any])?["id"] as? String ?? (msg["author_id"] as? String ?? "")
+        let replyMarkup = msg["replyMarkup"] as? [String: Any]
+        let inlineKeyboard = replyMarkup?["inline_keyboard"] as? [[[String: Any]]]
 
         HStack {
             if isMe { Spacer() }
@@ -499,120 +635,15 @@ struct ChatMessageItemView: View {
                    let mime = att["mime"] as? String,
                    mime.hasPrefix("audio/"),
                    let attUrl = att["url"] as? String {
-                    // Voice message bubble
-                    HStack(spacing: 10) {
-                        Button(action: {
-                            player.togglePlay(attachmentUrl: attUrl, messageId: msgId)
-                        }) {
-                            Image(systemName: (player.currentlyPlayingId == msgId && player.isPlaying) ? "pause.fill" : "play.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(Theme.textPrimary)
-                                .padding(10)
-                                .background(isMe ? Color.white.opacity(0.25) : Theme.accent)
-                                .clipShape(Circle())
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white.opacity(0.85))
-                                Text("Голосовое сообщение")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(Theme.textPrimary)
-                            }
-
-                            if player.currentlyPlayingId == msgId {
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        Rectangle()
-                                            .fill(Color.white.opacity(0.25))
-                                            .frame(height: 4)
-                                            .cornerRadius(2)
-                                        Rectangle()
-                                            .fill(Color.white)
-                                            .frame(width: geo.size.width * CGFloat(player.progress), height: 4)
-                                            .cornerRadius(2)
-                                    }
-                                }
-                                .frame(height: 4)
-                            }
-                        }
-                        .frame(minWidth: 140)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        isMe ?
-                        LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
-                    .cornerRadius(18)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
-                    )
+                    VoiceMessageBubbleView(isMe: isMe, msgId: msgId, attUrl: attUrl, player: player)
                 } else if let att = attachment, let path = att["url"] as? String {
                     AuthenticatedAttachmentView(path: path, mime: att["mime"] as? String ?? "", name: att["name"] as? String ?? "Файл")
                 } else if !text.isEmpty {
-                    Text(text)
-                        .font(.system(size: 15))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            isMe ?
-                            LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                        .foregroundColor(Theme.textPrimary)
-                        .cornerRadius(18)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18)
-                                .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
-                        )
-                        .frame(maxWidth: 280, alignment: isMe ? .trailing : .leading)
+                    TextMessageBubbleView(text: text, isMe: isMe)
                 }
 
-                if let replyMarkup = msg["replyMarkup"] as? [String: Any],
-                   let inlineKeyboard = replyMarkup["inline_keyboard"] as? [[[String: Any]]] {
-                    VStack(spacing: 6) {
-                        ForEach(0..<inlineKeyboard.count, id: \.self) { rowIdx in
-                            let row = inlineKeyboard[rowIdx]
-                            HStack(spacing: 6) {
-                                ForEach(0..<row.count, id: \.self) { btnIdx in
-                                    let btn = row[btnIdx]
-                                    let btnText = btn["text"] as? String ?? ""
-                                    let btnUrl = btn["url"] as? String
-                                    let callbackData = btn["callback_data"] as? String
-
-                                    Button(action: {
-                                        if let urlStr = btnUrl, let url = URL(string: urlStr) {
-                                            UIApplication.shared.open(url)
-                                        } else if let cb = callbackData {
-                                            let authorId = (msg["author"] as? [String: Any])?["id"] as? String ?? (msg["author_id"] as? String ?? "")
-                                            let messageId = msg["id"] as? String ?? ""
-                                            ApiService.shared.post(path: "/api/bots/callback", body: [
-                                                "messageId": messageId,
-                                                "authorId": authorId,
-                                                "callbackData": cb
-                                            ]) { _ in }
-                                        }
-                                    }) {
-                                        Text(btnText)
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundColor(.white)
-                                            .padding(.vertical, 8)
-                                            .padding(.horizontal, 12)
-                                            .frame(maxWidth: .infinity)
-                                            .background(Theme.glassCard)
-                                            .cornerRadius(12)
-                                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: 280)
+                if let keyboard = inlineKeyboard {
+                    MessageInlineKeyboardView(inlineKeyboard: keyboard, authorId: authorId, messageId: msgId)
                 }
             }
 
