@@ -139,6 +139,10 @@ final class ApiService: NSObject {
         return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
     }
 
+    func get(path: String) async throws -> [String: Any] {
+        return try await getObject(path: path)
+    }
+
     func getObject(path: String) async throws -> [String: Any] {
         return (try await request(path: path, method: "GET")) as? [String: Any] ?? [:]
     }
