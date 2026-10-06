@@ -2,6 +2,18 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
+struct VrotGlassBar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 12) {
+                content.glassEffect(.regular, in: .rect(cornerRadius: 24))
+            }
+        } else {
+            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+        }
+    }
+}
+
 struct MainTabsView: View {
     @Binding var isLoggedIn: Bool
     @State private var selectedTab = 0
@@ -19,20 +31,22 @@ struct MainTabsView: View {
             if let friend = activeChatFriend {
                 ChatView(friend: friend, onBack: { activeChatFriend = nil })
             } else if let comm = activeCommunity {
-                CommunityDetailView(community: comm, onBack: { activeCommunity = nil })
+                CommunityDetailView(community: comm, onBack: { activeCommunity = nil; loadData() })
             } else {
-                VStack(spacing: 0) {
-                    // Content
-                    TabView(selection: $selectedTab) {
-                        FriendsTabView(friends: friends, onRefresh: {
+                // The system tab bar receives native Liquid Glass on iOS 26.
+                TabView(selection: $selectedTab) {
+                        FriendsTabView(friends: friends, communities: communities, onRefresh: {
                             loadData()
                         }, onSelectFriend: { friend in
                             activeChatFriend = friend
+                        }, onSelectCommunity: { comm in
+                            activeCommunity = comm
                         }, onCallFriend: { friend, isVideo in
                             let id = friend["id"] as? String ?? ""
                             let name = friend["displayName"] as? String ?? (friend["username"] as? String ?? "Друг")
-                            CallManager.shared.startOutgoingCall(targetId: id, name: name, isVideo: isVideo)
+                            CallManager.shared.startOutgoingCall(targetId: id, name: name, avatarUrl: friend["avatarUrl"] as? String, isVideo: isVideo)
                         })
+                        .tabItem { Label(L("Чаты"), systemImage: "message.fill") }
                         .tag(0)
 
                         CommunitiesTabView(communities: communities, onSelectCommunity: { comm in
@@ -40,35 +54,14 @@ struct MainTabsView: View {
                         }, onCommunityCreated: {
                             loadData()
                         })
+                        .tabItem { Label(L("Сообщества"), systemImage: "person.3.fill") }
                         .tag(1)
 
-                        ProfileTabView(user: currentUser, onLogout: logout)
+                        ProfileTabView(user: currentUser, onLogout: logout, onUpdated: loadData)
+                            .tabItem { Label(L("Профиль"), systemImage: "person.crop.circle.fill") }
                             .tag(2)
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-
-                    // Liquid Glass Bottom Navigation Bar
-                    HStack {
-                        TabBarButton(icon: "message.fill", title: "Чаты", isSelected: selectedTab == 0) {
-                            selectedTab = 0
-                        }
-                        TabBarButton(icon: "person.3.fill", title: "Сообщества", isSelected: selectedTab == 1) {
-                            selectedTab = 1
-                        }
-                        TabBarButton(icon: "person.crop.circle.fill", title: "Профиль", isSelected: selectedTab == 2) {
-                            selectedTab = 2
-                        }
-                    }
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.08))
-                    .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
-                    .overlay(
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(Color.white.opacity(0.15)),
-                        alignment: .top
-                    )
                 }
+                .tint(Theme.accent)
             }
         }
         .onAppear(perform: loadData)
@@ -95,6 +88,7 @@ struct MainTabsView: View {
 
     private func logout() {
         Task {
+            await VrotAppDelegate.unregisterStoredTokens()
             _ = try? await ApiService.shared.request(path: "/api/auth/logout", method: "POST")
             await MainActor.run {
                 SessionStore.shared.clear()
@@ -139,12 +133,15 @@ struct TabBarButton: View {
 
 struct FriendsTabView: View {
     let friends: [[String: Any]]
+    let communities: [[String: Any]]
     let onRefresh: () -> Void
     let onSelectFriend: ([String: Any]) -> Void
+    let onSelectCommunity: ([String: Any]) -> Void
     let onCallFriend: ([String: Any], Bool) -> Void
 
-    @State private var selectedSubtab = 0 // 0: Все, 1: В сети, 2: Ожидание
+    @State private var selectedSubtab = 0 // 0: Все, 1: В сети, 2: Группы, 3: Ожидание
     @State private var showAddFriendSheet = false
+    @State private var showCreateGroupSheet = false
     @State private var selectedProfileUser: [String: Any]? = nil
     @State private var searchUsername = ""
     @State private var searchResults: [[String: Any]] = []
@@ -170,22 +167,40 @@ struct FriendsTabView: View {
     var body: some View {
         ZStack {
             VStack(alignment: .leading, spacing: 12) {
-                // Header with "+" button
+                // Header with "Группа" and "Добавить" buttons
                 HStack {
-                    Text("Друзья")
+                    Text(L("Чаты"))
                         .font(.system(size: 26, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                     Spacer()
 
-                    Button(action: { showAddFriendSheet = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "person.badge.plus")
-                                .font(.system(size: 16, weight: .bold))
-                            Text("Добавить")
-                                .font(.system(size: 13, weight: .semibold))
+                    Button(action: { showCreateGroupSheet = true }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "person.3.fill")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("Группа")
+                                .font(.system(size: 12, weight: .semibold))
                         }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
+                        .foregroundColor(Theme.textPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Theme.glassCard)
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Theme.glassBorder, lineWidth: 1)
+                        )
+                    }
+
+                    Button(action: { showAddFriendSheet = true }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "person.badge.plus")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("Добавить")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(Theme.textPrimary)
+                        .padding(.horizontal, 10)
                         .padding(.vertical, 8)
                         .background(Theme.accent)
                         .cornerRadius(10)
@@ -198,7 +213,7 @@ struct FriendsTabView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
 
-                // Subtabs: Все | В сети | Ожидание
+                // Subtabs: Все | В сети | Группы | Ожидание
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         FriendSubtabButton(title: "Все (\(acceptedFriends.count))", isSelected: selectedSubtab == 0) {
@@ -207,8 +222,11 @@ struct FriendsTabView: View {
                         FriendSubtabButton(title: "В сети (\(onlineFriends.count))", isSelected: selectedSubtab == 1) {
                             selectedSubtab = 1
                         }
-                        FriendSubtabButton(title: "Ожидание (\(pendingIncoming.count + pendingOutgoing.count))", isSelected: selectedSubtab == 2) {
+                        FriendSubtabButton(title: "Группы (\(communities.count))", isSelected: selectedSubtab == 2) {
                             selectedSubtab = 2
+                        }
+                        FriendSubtabButton(title: "Ожидание (\(pendingIncoming.count + pendingOutgoing.count))", isSelected: selectedSubtab == 3) {
+                            selectedSubtab = 3
                         }
                     }
                     .padding(.horizontal, 16)
@@ -229,6 +247,8 @@ struct FriendsTabView: View {
                     case 1:
                         friendsListView(list: onlineFriends, emptyText: "Никого из друзей нет в сети")
                     case 2:
+                        groupsListView
+                    case 3:
                         pendingListView
                     default:
                         EmptyView()
@@ -246,6 +266,111 @@ struct FriendsTabView: View {
                 addFriendView
             }
         }
+        .sheet(isPresented: $showCreateGroupSheet) {
+            CreateGroupSheet(friends: friends) { created in
+                onRefresh()
+                onSelectCommunity(created)
+            }
+        }
+    }
+
+    private var groupsListView: some View {
+        ScrollView {
+            if communities.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "person.3")
+                        .font(.system(size: 40))
+                        .foregroundColor(Theme.textSecondary)
+                    Text("У вас пока нет групп. Нажмите «Группа», чтобы создать групповой чат и пригласить друзей!")
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .padding(.top, 40)
+            } else {
+                LazyVStack(spacing: 8) {
+                    ForEach(communities, id: \.description) { comm in
+                        let name = comm["name"] as? String ?? "Группа"
+                        HStack(spacing: 12) {
+                            CommunityAvatarView(url: comm["avatarUrl"] as? String, name: name, size: 44)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(name)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(Theme.textPrimary)
+                                Text("Групповой чат и звонки")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Theme.textSecondary)
+                            }
+
+                            Spacer()
+
+                            // 1-tap Group Call button
+                            Button(action: {
+                                startGroupCall(for: comm)
+                            }) {
+                                Image(systemName: "phone.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Theme.green)
+                                    .frame(width: 36, height: 36)
+                                    .background(Theme.glassCard)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Theme.glassBorder, lineWidth: 1))
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+
+                            // Open Group Chat
+                            Button(action: {
+                                onSelectCommunity(comm)
+                            }) {
+                                Image(systemName: "message.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Theme.accent)
+                                    .frame(width: 36, height: 36)
+                                    .background(Theme.glassCard)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Theme.glassBorder, lineWidth: 1))
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Theme.glassCard)
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.glassBorder, lineWidth: 1))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onSelectCommunity(comm)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    private func startGroupCall(for comm: [String: Any]) {
+        guard let commId = comm["id"] as? String else { return }
+        let commName = comm["name"] as? String ?? "Группа"
+        Task {
+            do {
+                let channels = try await ApiService.shared.getArray(path: "/api/communities/\(commId)/channels")
+                var voiceChannel = channels.first(where: { ($0["kind"] as? String) == "voice" })
+                if voiceChannel == nil {
+                    let created = try await ApiService.shared.post(path: "/api/communities/\(commId)/channels", body: ["name": "голосовой", "kind": "voice"])
+                    voiceChannel = created
+                }
+                if let chId = voiceChannel?["id"] as? String {
+                    await MainActor.run {
+                        CallManager.shared.startOutgoingCall(targetId: chId, name: commName, isVideo: false, kind: "channel")
+                    }
+                }
+            } catch {
+                print("Failed to start group call: \(error)")
+            }
+        }
+    }
     }
 
     @ViewBuilder
@@ -284,7 +409,7 @@ struct FriendsTabView: View {
                         HStack(spacing: 4) {
                             Text(name)
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
 
                             if isVerified {
                                 Image(systemName: "checkmark.seal.fill")
@@ -368,13 +493,13 @@ struct FriendsTabView: View {
                                     .frame(width: 40, height: 40)
                                     .overlay(
                                         Text(String(name.prefix(1)).uppercased())
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.textPrimary)
                                             .fontWeight(.bold)
                                     )
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(name)
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Theme.textPrimary)
                                         .font(.system(size: 15, weight: .semibold))
                                     Text("Входящий запрос")
                                         .foregroundColor(Theme.textSecondary)
@@ -385,7 +510,7 @@ struct FriendsTabView: View {
 
                                 Button(action: { acceptFriend(id: id) }) {
                                     Image(systemName: "checkmark")
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Theme.textPrimary)
                                         .padding(8)
                                         .background(Theme.green)
                                         .clipShape(Circle())
@@ -393,7 +518,7 @@ struct FriendsTabView: View {
 
                                 Button(action: { removeFriend(id: id) }) {
                                     Image(systemName: "xmark")
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Theme.textPrimary)
                                         .padding(8)
                                         .background(Theme.red)
                                         .clipShape(Circle())
@@ -424,13 +549,13 @@ struct FriendsTabView: View {
                                     .frame(width: 40, height: 40)
                                     .overlay(
                                         Text(String(name.prefix(1)).uppercased())
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.textPrimary)
                                             .fontWeight(.bold)
                                     )
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(name)
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Theme.textPrimary)
                                         .font(.system(size: 15, weight: .semibold))
                                     Text("Ожидает подтверждения")
                                         .foregroundColor(Theme.textSecondary)
@@ -496,7 +621,7 @@ struct FriendsTabView: View {
                             .frame(width: 44, height: 44)
                     } else {
                         Image(systemName: "magnifyingglass")
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
                             .frame(width: 44, height: 44)
                     }
                 }
@@ -525,13 +650,13 @@ struct FriendsTabView: View {
                                         .frame(width: 40, height: 40)
                                         .overlay(
                                             Text(String(dname.prefix(1)).uppercased())
-                                                .foregroundColor(.white)
+                                                .foregroundColor(Theme.textPrimary)
                                                 .fontWeight(.bold)
                                         )
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(dname)
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.textPrimary)
                                             .font(.system(size: 15, weight: .semibold))
                                         Text("@\(uname)")
                                             .foregroundColor(Theme.textSecondary)
@@ -543,7 +668,7 @@ struct FriendsTabView: View {
                                     Button(action: { sendFriendRequest(username: uname) }) {
                                         Text("Отправить заявку")
                                             .font(.system(size: 12, weight: .bold))
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.textPrimary)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 8)
                                             .background(Theme.accent)
@@ -641,6 +766,186 @@ struct FriendsTabView: View {
     }
 }
 
+struct CreateGroupSheet: View {
+    let friends: [[String: Any]]
+    let onCreated: ([String: Any]) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var groupName = ""
+    @State private var selectedFriendIds: Set<String> = []
+    @State private var isCreating = false
+    @State private var errorMessage = ""
+
+    private var acceptedFriends: [[String: Any]] {
+        friends.filter { ($0["status"] as? String ?? "") == "accepted" }
+    }
+
+    var body: some View {
+        ZStack {
+            Theme.darkBg.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                // Header
+                HStack {
+                    Text("Создать группу")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(Theme.textSecondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+
+                // Group Name
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("НАЗВАНИЕ ГРУППЫ")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Theme.textSecondary)
+                        .padding(.horizontal, 16)
+
+                    CustomTextField(placeholder: "Например: Друзья или Тусовка", text: $groupName)
+                        .padding(.horizontal, 16)
+                }
+
+                // Friends Selector
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ДОБАВИТЬ ДРУЗЕЙ (\(selectedFriendIds.count))")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Theme.textSecondary)
+                        .padding(.horizontal, 16)
+
+                    if acceptedFriends.isEmpty {
+                        Text("У вас пока нет друзей для добавления в группу")
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.textSecondary)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 8) {
+                                ForEach(acceptedFriends, id: \.description) { f in
+                                    let fid = f["id"] as? String ?? ""
+                                    let name = f["displayName"] as? String ?? (f["username"] as? String ?? "Друг")
+                                    let isSelected = selectedFriendIds.contains(fid)
+
+                                    HStack(spacing: 12) {
+                                        AvatarBadgeView(avatarUrl: f["avatarUrl"] as? String, name: name, size: 36)
+
+                                        Text(name)
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundColor(Theme.textPrimary)
+
+                                        Spacer()
+
+                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 20))
+                                            .foregroundColor(isSelected ? Theme.accent : Theme.textSecondary)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 8)
+                                    .background(Theme.glassCard)
+                                    .cornerRadius(12)
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        if isSelected {
+                                            selectedFriendIds.remove(fid)
+                                        } else {
+                                            selectedFriendIds.insert(fid)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
+                        .frame(maxHeight: 280)
+                    }
+                }
+
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.red)
+                        .padding(.horizontal, 16)
+                }
+
+                Spacer()
+
+                // Create Button
+                Button(action: createGroup) {
+                    HStack {
+                        Spacer()
+                        if isCreating {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Text("Создать группу")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 14)
+                    .background(groupName.trimmingCharacters(in: .whitespaces).isEmpty ? Theme.card : Theme.accent)
+                    .cornerRadius(14)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.2), lineWidth: 1))
+                }
+                .disabled(groupName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func createGroup() {
+        let name = groupName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        isCreating = true
+        errorMessage = ""
+
+        Task {
+            do {
+                let created = try await ApiService.shared.post(path: "/api/communities", body: [
+                    "name": name,
+                    "description": "Групповой чат"
+                ])
+                guard let commId = created["id"] as? String else {
+                    await MainActor.run { isCreating = false }
+                    return
+                }
+
+                // Automatically create voice channel for group calls
+                _ = try? await ApiService.shared.post(path: "/api/communities/\(commId)/channels", body: [
+                    "name": "голосовой",
+                    "kind": "voice"
+                ])
+
+                // Invite all selected friends
+                for fid in selectedFriendIds {
+                    _ = try? await ApiService.shared.post(path: "/api/communities/\(commId)/invite-friend", body: [
+                        "friendId": fid
+                    ])
+                }
+
+                await MainActor.run {
+                    isCreating = false
+                    dismiss()
+                    onCreated(created)
+                }
+            } catch {
+                await MainActor.run {
+                    isCreating = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
 struct FriendSubtabButton: View {
     let title: String
     let isSelected: Bool
@@ -680,7 +985,7 @@ struct CommunitiesTabView: View {
             HStack {
                 Text("Сообщества")
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
                 Spacer()
 
                 // Join by invite code button
@@ -733,7 +1038,7 @@ struct CommunitiesTabView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(cName)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                                     .font(.system(size: 15, weight: .semibold))
                                 Text("От @\(inviter)")
                                     .foregroundColor(Theme.textSecondary)
@@ -745,7 +1050,7 @@ struct CommunitiesTabView: View {
                             Button(action: { respondToInvitation(id: id, accept: true) }) {
                                 Text("Вступить")
                                     .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
                                     .background(Theme.green)
@@ -794,25 +1099,8 @@ struct CommunitiesTabView: View {
                         VStack(spacing: 12) {
                             ForEach(communities, id: \.description) { comm in
                                 let name = comm["name"] as? String ?? "С"
-                                let avatarUrl = comm["avatarUrl"] as? String
-
                                 Button(action: { onSelectCommunity(comm) }) {
-                                    ZStack {
-                                        if let aUrl = avatarUrl, !aUrl.isEmpty {
-                                            AsyncImage(url: URL(string: ApiService.shared.baseURL + aUrl)) { img in
-                                                img.resizable().scaledToFill()
-                                            } placeholder: {
-                                                Color.accentColor.opacity(0.4)
-                                            }
-                                        } else {
-                                            LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                            Text(String(name.prefix(1)).uppercased())
-                                                .font(.system(size: 18, weight: .bold))
-                                                .foregroundColor(.white)
-                                        }
-                                    }
-                                    .frame(width: 48, height: 48)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    CommunityAvatarView(url: comm["avatarUrl"] as? String, name: name, size: 48)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 16)
                                             .stroke(Color.white.opacity(0.25), lineWidth: 1)
@@ -851,11 +1139,12 @@ struct CommunitiesTabView: View {
 
                                 Button(action: { onSelectCommunity(comm) }) {
                                     HStack(spacing: 12) {
+                                        CommunityAvatarView(url: comm["avatarUrl"] as? String, name: name, size: 42)
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack(spacing: 6) {
                                                 Text(name)
                                                     .font(.system(size: 16, weight: .bold))
-                                                    .foregroundColor(.white)
+                                                    .foregroundColor(Theme.textPrimary)
                                                 if isVerified {
                                                     Image(systemName: "checkmark.seal.fill")
                                                         .font(.system(size: 12))
@@ -904,7 +1193,7 @@ struct CommunitiesTabView: View {
                 VStack(spacing: 20) {
                     Text("Присоединиться по коду")
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
 
                     Text("Введите 8-значный код приглашения, чтобы вступить в сообщество.")
                         .font(.system(size: 13))
@@ -920,7 +1209,7 @@ struct CommunitiesTabView: View {
                         } else {
                             Text("Присоединиться")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -940,7 +1229,7 @@ struct CommunitiesTabView: View {
                 VStack(spacing: 20) {
                     Text("Создать сообщество")
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
 
                     CustomTextField(placeholder: "Название", text: $newName)
                     CustomTextField(placeholder: "Описание (необязательно)", text: $newDesc)
@@ -970,7 +1259,7 @@ struct CommunitiesTabView: View {
                         } else {
                             Text("Создать")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -1045,8 +1334,12 @@ struct CommunitiesTabView: View {
 struct ProfileTabView: View {
     let user: [String: Any]
     let onLogout: () -> Void
+    let onUpdated: () -> Void
+    @AppStorage("vrot_theme") private var appTheme = "dark"
+    @AppStorage("vrot_language") private var appLanguage = "ru"
 
     @State private var showSettingsModal = false
+    @State private var settingsSection = "profile"
     @State private var displayName = ""
     @State private var bio = ""
     @State private var selectedStatus = "online"
@@ -1111,7 +1404,7 @@ struct ProfileTabView: View {
                         HStack(spacing: 6) {
                             Text(name)
                                 .font(.system(size: 22, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
 
                             if isVerified {
                                 Image(systemName: "checkmark.seal.fill")
@@ -1141,17 +1434,16 @@ struct ProfileTabView: View {
                                 .foregroundColor(Theme.textPrimary)
                                 .padding(.top, 4)
                         }
+                        if let role = user["adminRole"] as? String, role != "user" {
+                            Label(role == "owner" ? "Основатель VROT" : (role == "moderator" ? "Модератор VROT" : "Администратор VROT"), systemImage: "shield.lefthalf.filled")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Theme.accent)
+                        }
                     }
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .background(Color.white.opacity(0.06))
-                .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
-                .cornerRadius(20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
+                .modifier(VrotGlassBar())
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
 
@@ -1181,9 +1473,9 @@ struct ProfileTabView: View {
                             Image(systemName: "person.crop.circle.badge.checkmark")
                                 .font(.system(size: 18))
                                 .foregroundColor(Theme.accent)
-                            Text("Редактировать аватар, шапку и статус")
+                            Text("Редактировать профиль и настройки")
                                 .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 14))
@@ -1195,25 +1487,6 @@ struct ProfileTabView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 1))
                     }
 
-                    // System Notifications / Call status info
-                    HStack {
-                        Image(systemName: "bell.badge.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(Theme.green)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Уведомления и звонки")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.white)
-                            Text("CallKit и WebSocket звонки активны")
-                                .font(.system(size: 12))
-                                .foregroundColor(Theme.textSecondary)
-                        }
-                        Spacer()
-                    }
-                    .padding(14)
-                    .background(Color.white.opacity(0.06))
-                    .cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 1))
                 }
                 .padding(.horizontal, 16)
 
@@ -1221,7 +1494,7 @@ struct ProfileTabView: View {
 
                 // Logout Button
                 Button(action: onLogout) {
-                    Text("Выйти из аккаунта")
+                    Text(L("Выйти из аккаунта"))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(Theme.red)
                         .frame(maxWidth: .infinity)
@@ -1240,11 +1513,38 @@ struct ProfileTabView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        Text("Настройки профиля")
+                        Text(L("Настройки профиля"))
                             .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
                             .padding(.top, 10)
 
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach([("profile", "Профиль"), ("appearance", "Оформление"), ("security", "Безопасность"), ("app", "Приложение")], id: \.0) { item in
+                                    Button(item.1) { settingsSection = item.0 }
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(settingsSection == item.0 ? .white : Theme.textSecondary)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(settingsSection == item.0 ? Theme.accent : Theme.card, in: Capsule())
+                                }
+                            }
+                        }
+
+                        if settingsSection == "app" {
+                        Picker(L("Тема"), selection: $appTheme) {
+                            Text(L("Тёмная")).tag("dark")
+                            Text(L("Светлая")).tag("light")
+                        }
+                        .pickerStyle(.segmented)
+                        Picker(L("Язык"), selection: $appLanguage) {
+                            Text(L("Русский")).tag("ru")
+                            Text(L("Английский")).tag("en")
+                        }
+                        .pickerStyle(.segmented)
+                        }
+
+                        if settingsSection == "appearance" {
                         // Avatar & Banner upload row
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Оформление")
@@ -1258,7 +1558,7 @@ struct ProfileTabView: View {
                                         Text("Сменить аватар")
                                     }
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 10)
                                     .background(Theme.accent)
@@ -1274,7 +1574,7 @@ struct ProfileTabView: View {
                                         Text("Сменить шапку")
                                     }
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 10)
                                     .background(Color.white.opacity(0.12))
@@ -1286,7 +1586,9 @@ struct ProfileTabView: View {
                                 }
                             }
                         }
+                        }
 
+                        if settingsSection == "profile" {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Отображаемое имя")
                                 .font(.system(size: 13, weight: .medium))
@@ -1303,7 +1605,7 @@ struct ProfileTabView: View {
 
                         // Liquid Glass Status Picker
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Сетевой статус (Liquid Glass)")
+                            Text("Сетевой статус")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(Theme.textSecondary)
 
@@ -1322,32 +1624,44 @@ struct ProfileTabView: View {
                                 }
                             }
                         }
+                        }
 
+                        if settingsSection == "security" {
                         Divider().background(Theme.card).padding(.vertical, 8)
 
                         Text("Смена пароля (необязательно)")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         CustomSecureField(placeholder: "Текущий пароль", text: $currentPassword)
                         CustomSecureField(placeholder: "Новый пароль (мин. 12 симв.)", text: $newPassword)
-
-                        Button(action: saveSettings) {
-                            if isSaving {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Text("Сохранить изменения")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
+
+                        if settingsSection == "profile" || settingsSection == "security" {
+                        Button(action: saveSettings) {
+                            HStack {
+                                Spacer()
+                                if isSaving {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Text("Сохранить изменения")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                                Spacer()
+                            }
+                            .frame(height: 48)
+                            .contentShape(Rectangle())
+                        }
                         .background(Theme.accent)
                         .cornerRadius(12)
+                        .buttonStyle(.plain)
                         .disabled(isSaving)
                         .padding(.top, 10)
+                        }
+                        if !noticeMessage.isEmpty {
+                            Text(noticeMessage).font(.footnote).foregroundColor(Theme.textSecondary)
+                        }
                     }
                     .padding(24)
                 }
@@ -1426,6 +1740,7 @@ struct ProfileTabView: View {
                     self.noticeMessage = "Настройки успешно сохранены!"
                     self.currentPassword = ""
                     self.newPassword = ""
+                    self.onUpdated()
                 }
             } catch {
                 await MainActor.run {
@@ -1474,6 +1789,9 @@ struct StatusOptionButton: View {
 struct UserProfileCardModal: View {
     let user: [String: Any]
     let onDismiss: () -> Void
+    @State private var fullProfile: [String: Any] = [:]
+
+    private var profile: [String: Any] { user.merging(fullProfile) { _, new in new } }
 
     var body: some View {
         ZStack {
@@ -1482,15 +1800,15 @@ struct UserProfileCardModal: View {
 
             VStack(spacing: 0) {
                 // Banner
-                let bannerUrl = user["bannerUrl"] as? String
-                let avatarUrl = user["avatarUrl"] as? String
-                let name = user["displayName"] as? String ?? (user["username"] as? String ?? "Пользователь")
-                let username = user["username"] as? String ?? ""
-                let bio = user["bio"] as? String ?? ""
-                let presence = user["status"] as? String ?? (user["presence"] as? String ?? "offline")
-                let isVerified = user["verified"] as? Bool ?? false
-                let isDonator = user["donator"] as? Bool ?? false
-                let isMrbeast = user["mrbeastBadge"] as? Bool ?? false
+                let bannerUrl = profile["bannerUrl"] as? String
+                let avatarUrl = profile["avatarUrl"] as? String
+                let name = profile["displayName"] as? String ?? (profile["username"] as? String ?? "Пользователь")
+                let username = profile["username"] as? String ?? ""
+                let bio = profile["bio"] as? String ?? ""
+                let presence = profile["status"] as? String ?? (profile["presence"] as? String ?? "offline")
+                let isVerified = profile["verified"] as? Bool ?? false
+                let isDonator = profile["donator"] as? Bool ?? false
+                let isMrbeast = profile["mrbeastBadge"] as? Bool ?? false
 
                 ZStack(alignment: .bottomLeading) {
                     if let bUrl = bannerUrl, !bUrl.isEmpty {
@@ -1506,7 +1824,7 @@ struct UserProfileCardModal: View {
                                 Color.purple.opacity(0.4).frame(height: 120)
                             }
                         } else {
-                            AsyncImage(url: URL(string: ApiService.shared.baseURL + bUrl)) { img in
+                            AsyncImage(url: URL(string: bUrl.hasPrefix("https://") ? bUrl : ApiService.shared.baseURL + bUrl)) { img in
                                 img.resizable().scaledToFill()
                             } placeholder: {
                                 Color.purple.opacity(0.4)
@@ -1530,7 +1848,7 @@ struct UserProfileCardModal: View {
                         Button(action: onDismiss) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
                                 .padding(8)
                                 .background(Color.black.opacity(0.5))
                                 .clipShape(Circle())
@@ -1543,7 +1861,7 @@ struct UserProfileCardModal: View {
                     HStack(spacing: 6) {
                         Text(name)
                             .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         if isVerified {
                             Image(systemName: "checkmark.seal.fill")
@@ -1578,20 +1896,31 @@ struct UserProfileCardModal: View {
                             .foregroundColor(Theme.textPrimary)
                             .padding(.top, 4)
                     }
+                    if let adminRole = profile["adminRole"] as? String, adminRole != "user" {
+                        Label(adminRole == "owner" ? "Основатель VROT" : (adminRole == "moderator" ? "Модератор VROT" : "Администратор VROT"), systemImage: "shield.lefthalf.filled")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Theme.accent)
+                    }
+                    if let role = user["role"] as? String {
+                        let topRole = (user["roles"] as? [[String: Any]])?.first
+                        Text(role == "owner" ? "Владелец сообщества" : (role == "admin" ? "Администратор сообщества" : (topRole?["name"] as? String ?? "Участник сообщества")))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(Color(hex: topRole?["color"] as? String ?? "") ?? Theme.textSecondary)
+                    }
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: 340)
-            .background(Color.white.opacity(0.12))
-            .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.92))
-            .cornerRadius(24)
-            .overlay(
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color.white.opacity(0.25), lineWidth: 1.5)
-            )
+            .modifier(VrotGlassBar())
             .shadow(color: Color.black.opacity(0.6), radius: 30)
             .padding(.horizontal, 20)
+        }
+        .task(id: user["id"] as? String) {
+            guard let id = user["id"] as? String else { return }
+            if let result = try? await ApiService.shared.getObject(path: "/api/users/\(id)/profile") {
+                fullProfile = result["user"] as? [String: Any] ?? [:]
+            }
         }
     }
 }
@@ -1616,7 +1945,7 @@ struct AvatarBadgeView: View {
                         fallbackCircle
                     }
                 } else {
-                    AsyncImage(url: URL(string: ApiService.shared.baseURL + aUrl)) { phase in
+                    AsyncImage(url: URL(string: aUrl.hasPrefix("https://") ? aUrl : ApiService.shared.baseURL + aUrl)) { phase in
                         switch phase {
                         case .success(let img):
                             img.resizable().scaledToFill()
@@ -1640,7 +1969,7 @@ struct AvatarBadgeView: View {
             .overlay(
                 Text(String(name.prefix(1)).uppercased())
                     .font(.system(size: size * 0.42, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
             )
     }
 }
