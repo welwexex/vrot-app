@@ -396,6 +396,7 @@ struct FriendsTabView: View {
                 let isVerified = friend["verified"] as? Bool ?? false
                 let isDonator = friend["donator"] as? Bool ?? false
                 let isMrbeast = friend["mrbeastBadge"] as? Bool ?? false
+                let isBot = (friend["isBot"] as? Bool ?? false) || presence == "bot"
 
                 HStack(spacing: 12) {
                     AvatarBadgeView(avatarUrl: avatarUrl, name: name, size: 44)
@@ -409,6 +410,15 @@ struct FriendsTabView: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(Theme.textPrimary)
 
+                            if isBot {
+                                Text("БОТ")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Theme.accent.opacity(0.3))
+                                    .foregroundColor(Theme.accent)
+                                    .cornerRadius(6)
+                            }
                             if isVerified {
                                 Image(systemName: "checkmark.seal.fill")
                                     .font(.system(size: 12))
@@ -424,9 +434,15 @@ struct FriendsTabView: View {
                             }
                         }
 
-                        Text(presence == "online" ? "В сети" : "Не в сети")
-                            .font(.system(size: 12))
-                            .foregroundColor(presence == "online" ? Theme.green : Theme.textSecondary)
+                        if isBot {
+                            Text("БОТ")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Theme.accent)
+                        } else {
+                            Text(presence == "online" ? "В сети" : "Не в сети")
+                                .font(.system(size: 12))
+                                .foregroundColor(presence == "online" ? Theme.green : Theme.textSecondary)
+                        }
                     }
 
                     Spacer()
@@ -1864,12 +1880,23 @@ struct UserProfileCardModal: View {
                     .padding(.horizontal, 16)
                 }
 
+                let isBot = (profile["isBot"] as? Bool ?? false) || presence == "bot"
+
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Text(name)
                             .font(.system(size: 20, weight: .bold))
                             .foregroundColor(Theme.textPrimary)
 
+                        if isBot {
+                            Text("БОТ")
+                                .font(.system(size: 11, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Theme.accent.opacity(0.3))
+                                .foregroundColor(Theme.accent)
+                                .cornerRadius(6)
+                        }
                         if isVerified {
                             Image(systemName: "checkmark.seal.fill")
                                 .foregroundColor(Theme.accent)
@@ -1884,12 +1911,18 @@ struct UserProfileCardModal: View {
 
                         Spacer()
 
-                        Circle()
-                            .fill(presence == "online" ? Theme.green : (presence == "idle" ? Color.orange : Theme.textSecondary))
-                            .frame(width: 10, height: 10)
-                        Text(presence == "online" ? "В сети" : (presence == "idle" ? "Не активен" : "Не в сети"))
-                            .font(.system(size: 12))
-                            .foregroundColor(Theme.textSecondary)
+                        if isBot {
+                            Text("БОТ")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(Theme.accent)
+                        } else {
+                            Circle()
+                                .fill(presence == "online" ? Theme.green : (presence == "idle" ? Color.orange : Theme.textSecondary))
+                                .frame(width: 10, height: 10)
+                            Text(presence == "online" ? "В сети" : (presence == "idle" ? "Не активен" : "Не в сети"))
+                                .font(.system(size: 12))
+                                .foregroundColor(Theme.textSecondary)
+                        }
                     }
                     .padding(.top, 40)
 
