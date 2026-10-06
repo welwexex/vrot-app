@@ -201,6 +201,18 @@ export async function migrate(){
       ON CONFLICT (username_key) DO NOTHING
     `, [bfId, dummyHash]);
   }
+
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_commands JSONB DEFAULT '[]'::jsonb`);
+  await pool.query(`
+    UPDATE users SET bot_commands = '[
+      {"command": "start", "description": "Главное меню BotFather"},
+      {"command": "newbot", "description": "Создать нового бота"},
+      {"command": "mybots", "description": "Мои боты и управление токенами"},
+      {"command": "setcommands", "description": "Настроить меню команд бота"},
+      {"command": "token", "description": "Сгенерировать новый API токен"},
+      {"command": "help", "description": "Справка и документация"}
+    ]'::jsonb WHERE username_key = 'botfather' AND (bot_commands IS NULL OR bot_commands = '[]'::jsonb)
+  `);
 }
 
 export async function audit(actorId:string|null,eventType:string,subjectId?:string,details:Record<string,unknown>={}){
