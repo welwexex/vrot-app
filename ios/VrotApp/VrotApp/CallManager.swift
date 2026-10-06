@@ -107,9 +107,9 @@ final class CallManager: NSObject, ObservableObject {
             if let error = error {
                 print("Failed to start outgoing call: \(error.localizedDescription)")
             } else {
-                // 15 seconds timer
+                // 45 seconds timer for friend calls
                 DispatchQueue.main.async {
-                    if kind == "friend" { self?.startTimeoutTimer(seconds: 15.0) }
+                    if kind == "friend" { self?.startTimeoutTimer(seconds: 45.0) }
                 }
             }
         }
@@ -121,7 +121,8 @@ final class CallManager: NSObject, ObservableObject {
 
     func startTimeoutTimer(seconds: Double) {
         timeoutTimer?.invalidate()
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+        let interval = max(15.0, seconds)
+        timeoutTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             guard let self = self, self.state.active else { return }
             if self.state.answered || NativeCallMedia.shared.connectedPeers > 0 {
                 self.cancelTimeout()
