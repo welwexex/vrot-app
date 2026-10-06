@@ -24,7 +24,7 @@ const app=express(); const server=http.createServer(app); const origin=process.e
 const allowedOrigins=[origin,...(process.env.ADDITIONAL_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean)];
 const io=new Server(server,{cors:{origin:allowedOrigins,credentials:true},maxHttpBufferSize:1_000_000});
 app.set('trust proxy',1);
-app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],imgSrc:["'self'","data:",'https://api.vrot.fun'],mediaSrc:["'self'",'https://api.vrot.fun'],connectSrc:["'self'",'wss:','https://api.vrot.fun'],fontSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]}}}));
+app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'",'https://api.vrot.fun'],styleSrc:["'self'",'https://api.vrot.fun'],imgSrc:["'self'","data:",'https://api.vrot.fun'],mediaSrc:["'self'",'https://api.vrot.fun'],connectSrc:["'self'",'wss:','https://api.vrot.fun'],fontSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]}}}));
 app.use(express.json({limit:'768kb'})); app.use(cookieParser());
 app.use('/api',(req,res,next)=>{res.setHeader('Cache-Control','private, no-store');next();});
 app.use('/api/uploads',(req,res,next)=>{res.setHeader('Cross-Origin-Resource-Policy','same-site');next();});
@@ -608,7 +608,7 @@ app.get('/download/vrot.ipa',(_req,res)=>{
   res.status(404).send('IPA файл пока формируется на сервере. Пожалуйста, подождите минуту и повторите попытку.');
 });
 
-const web=path.resolve('dist');app.use(express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false}));app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/socket.io'))return next();res.sendFile(path.join(web,'index.html'));});
+const web=path.resolve('dist');app.use('/api/web',(req,res,next)=>{res.setHeader('Cross-Origin-Resource-Policy','cross-origin');next();},express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.use(express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/socket.io'))return next();res.setHeader('Cache-Control','no-store, max-age=0');res.sendFile(path.join(web,'index.html'));});
 app.use((err:any,_req:Request,res:Response,_next:NextFunction)=>{if(err instanceof z.ZodError)return res.status(400).json({error:'Проверьте введённые данные',fields:err.flatten().fieldErrors});console.error(err);res.status(500).json({error:'Внутренняя ошибка'});});
 
 await migrate();await loadSystemSettings();await initPushKeys();const port=Number(process.env.PORT||3000);server.listen(port,'0.0.0.0',()=>console.log(`Vrot.fun listening on ${port}`));
