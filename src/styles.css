@@ -1556,3 +1556,101 @@ body:has(.app-shell) .app-shell{flex:1 1 auto;min-height:0;width:100%;height:aut
   transform: translateY(-1px);
 }
 
+/* Bot Commands Menu */
+.bot-menu-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.bot-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(88, 101, 242, 0.16);
+  border: 1px solid rgba(88, 101, 242, 0.35);
+  color: #c7d2fe;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-right: 6px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(8px);
+}
+
+.bot-menu-button:hover {
+  background: rgba(88, 101, 242, 0.28);
+  border-color: rgba(88, 101, 242, 0.55);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.bot-menu-button:active {
+  transform: translateY(0);
+}
+
+.bot-menu-popup {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  width: 290px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: rgba(18, 22, 36, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(88, 101, 242, 0.25);
+  padding: 10px;
+  z-index: 100;
+  animation: botMenuFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes botMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.bot-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all 0.15s ease;
+}
+
+.bot-menu-item:hover {
+  background: rgba(88, 101, 242, 0.22);
+  border-color: rgba(88, 101, 242, 0.4);
+}
+
+.bot-menu-item strong {
+  color: #818cf8;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.bot-menu-item span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+
