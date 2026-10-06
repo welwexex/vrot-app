@@ -510,7 +510,7 @@ struct ChatView: View {
                 ]}
             }
             Task {
-                if let resp = try? await ApiService.shared.get(path: "/api/bots/\(id)/commands"),
+                if let resp = try? await ApiService.shared.getObject(path: "/api/bots/\(id)/commands"),
                    let list = resp["commands"] as? [[String: Any]] {
                     await MainActor.run {
                         self.botCommands = list.map { [
