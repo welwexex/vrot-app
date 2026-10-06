@@ -730,4 +730,118 @@ export function setupBotRoutes(app: Express, io: Server) {
       }))
     });
   });
+
+  // REST API: Open or get BotFather chat for user
+  app.post('/api/bots/botfather/open', async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: 'Нужен вход' });
+    const bfId = await getBotFatherId();
+    // Ensure mutual friendship
+    await pool.query(`
+      INSERT INTO friendships (requester_id, addressee_id, status)
+      VALUES ($1, $2, 'accepted'), ($2, $1, 'accepted')
+      ON CONFLICT (requester_id, addressee_id) DO UPDATE SET status = 'accepted'
+    `, [req.user.id, bfId]);
+
+    // Check if there are any existing messages
+    const existing = await pool.query(
+      'SELECT id FROM direct_messages WHERE (sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1) LIMIT 1',
+      [req.user.id, bfId]
+    );
+    if (!existing.rows.length) {
+      await handleBotFatherMessage(io, req.user.id, '/start');
+    }
+
+    const bfUser = await pool.query('SELECT id, username, display_name, avatar_url, verified FROM users WHERE id = $1', [bfId]);
+    const row = bfUser.rows[0];
+    return res.json({
+      ok: true,
+      botFather: {
+        id: row.id,
+        username: row.username,
+        displayName: row.display_name,
+        avatarUrl: row.avatar_url,
+        verified: true,
+        isBot: true,
+        status: 'bot',
+        presence: 'bot'
+      }
+    });
+  });
+
+  // REST API: Create bot directly from web UI
+  app.post('/api/bots/create', async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: 'Нужен вход' });
+    const { displayName, username } = req.body;
+    if (!displayName || !username) {
+      return res.status(400).json({ error: 'Укажите имя и юзернейм бота' });
+    }
+    const cleanName = String(displayName).trim().slice(0, 64);
+    const cleanUser = String(username).trim();
+    const lowerUser = cleanUser.toLowerCase();
+
+    if (!lowerUser.endsWith('bot')) {
+      return res.status(400).json({ error: 'Юзернейм бота обязан заканчиваться на bot (например: my_bot)' });
+    }
+    if (!/^[a-zA-Z0-9_]{3,32}$/.test(cleanUser)) {
+      return res.status(400).json({ error: 'Юзернейм должен содержать от 3 до 32 символов (латиница, цифры, _)' });
+    }
+
+    const check = await pool.query('SELECT id FROM users WHERE username_key = $1', [lowerUser]);
+    if (check.rowCount) {
+      return res.status(409).json({ error: 'Юзернейм уже занят' });
+    }
+
+    const newBotId = uuid();
+    const token = `vrot_${randomToken(32)}`;
+
+    await pool.query(`
+      INSERT INTO users (id, username, username_key, email, password_hash, birth_date, display_name, is_bot, bot_owner_id, bot_token, status, verified)
+      VALUES ($1, $2, $3, $4, '$argon2id$fake', '2000-01-01', $5, true, $6, $7, 'bot', false)
+    `, [newBotId, cleanUser, lowerUser, `${lowerUser}@bot.vrot.fun`, cleanName, req.user.id, token]);
+
+    // Establish mutual friendship with owner so it immediately appears in chats
+    await pool.query(`
+      INSERT INTO friendships (requester_id, addressee_id, status)
+      VALUES ($1, $2, 'accepted'), ($2, $1, 'accepted')
+      ON CONFLICT DO NOTHING
+    `, [req.user.id, newBotId]);
+
+    return res.json({
+      ok: true,
+      bot: {
+        id: newBotId,
+        username: cleanUser,
+        displayName: cleanName,
+        token,
+        verified: false,
+        isBot: true,
+        status: 'bot',
+        presence: 'bot'
+      }
+    });
+  });
+
+  // REST API: Regenerate bot token
+  app.post('/api/bots/:id/regenerate-token', async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: 'Нужен вход' });
+    const { id } = req.params;
+    const botQ = await pool.query('SELECT id FROM users WHERE id = $1 AND bot_owner_id = $2 AND is_bot = true', [id, req.user.id]);
+    if (!botQ.rows[0]) return res.status(404).json({ error: 'Бот не найден или вы не являетесь его владельцем' });
+
+    const newToken = `vrot_${randomToken(32)}`;
+    await pool.query('UPDATE users SET bot_token = $1 WHERE id = $2', [newToken, id]);
+    return res.json({ ok: true, token: newToken });
+  });
+
+  // REST API: Delete bot
+  app.delete('/api/bots/:id', async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: 'Нужен вход' });
+    const { id } = req.params;
+    const botQ = await pool.query('SELECT id FROM users WHERE id = $1 AND bot_owner_id = $2 AND is_bot = true', [id, req.user.id]);
+    if (!botQ.rows[0]) return res.status(404).json({ error: 'Бот не найден или вы не являетесь его владельцем' });
+
+    await pool.query('UPDATE users SET deleted_at = now() WHERE id = $1', [id]);
+    await pool.query('DELETE FROM bot_webhooks WHERE bot_id = $1', [id]);
+    return res.json({ ok: true });
+  });
 }
