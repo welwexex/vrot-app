@@ -1,14 +1,31 @@
 import SwiftUI
 
 struct Theme {
-    static let darkBg = Color(red: 15/255, green: 18/255, blue: 28/255)
-    static let surface = Color(red: 24/255, green: 28/255, blue: 42/255)
-    static let card = Color(red: 34/255, green: 39/255, blue: 56/255)
+    static var isLight: Bool { UserDefaults.standard.string(forKey: "vrot_theme") == "light" }
+    static var darkBg: Color { isLight ? Color(red: 239/255, green: 242/255, blue: 248/255) : Color(red: 15/255, green: 18/255, blue: 28/255) }
+    static var surface: Color { isLight ? .white : Color(red: 24/255, green: 28/255, blue: 42/255) }
+    static var card: Color { isLight ? Color(red: 248/255, green: 249/255, blue: 253/255) : Color(red: 34/255, green: 39/255, blue: 56/255) }
     static let accent = Color(red: 88/255, green: 101/255, blue: 242/255)
-    static let textPrimary = Color(red: 227/255, green: 229/255, blue: 232/255)
-    static let textSecondary = Color(red: 154/255, green: 164/255, blue: 178/255)
+    static var textPrimary: Color { isLight ? Color(red: 31/255, green: 36/255, blue: 49/255) : Color(red: 227/255, green: 229/255, blue: 232/255) }
+    static var textSecondary: Color { isLight ? Color(red: 88/255, green: 97/255, blue: 115/255) : Color(red: 154/255, green: 164/255, blue: 178/255) }
     static let red = Color(red: 237/255, green: 66/255, blue: 69/255)
     static let green = Color(red: 87/255, green: 242/255, blue: 135/255)
+    static var glassBg: Color { isLight ? Color.white.opacity(0.75) : Color.white.opacity(0.08) }
+    static var glassBorder: Color { isLight ? Color.black.opacity(0.1) : Color.white.opacity(0.18) }
+    static var glassCard: Color { isLight ? Color.white.opacity(0.85) : Color(red: 28/255, green: 34/255, blue: 52/255).opacity(0.65) }
+}
+
+func L(_ ru: String) -> String {
+    guard UserDefaults.standard.string(forKey: "vrot_language") == "en" else { return ru }
+    let translations: [String: String] = [
+        "Чаты": "Chats", "Сообщества": "Communities", "Профиль": "Profile", "Друзья": "Friends",
+        "Добавить": "Add", "В сети": "Online", "Не в сети": "Offline", "Ожидание": "Pending",
+        "Настройки профиля": "Profile settings", "Оформление": "Appearance", "Тема": "Theme", "Язык": "Language",
+        "Тёмная": "Dark", "Светлая": "Light", "Русский": "Russian", "Английский": "English",
+        "Выйти из аккаунта": "Log out", "Входящий вызов…": "Incoming call…", "Время ожидания истекло": "Call timed out",
+        "Подключение медиа…": "Connecting media…", "Вызов завершён": "Call ended"
+    ]
+    return translations[ru] ?? ru
 }
 
 struct AuthView: View {
@@ -82,7 +99,7 @@ struct AuthView: View {
                         // Title
                         Text(mode == "login" ? "С возвращением" : "Создать аккаунт")
                             .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         if !errorMessage.isEmpty {
@@ -143,19 +160,24 @@ struct AuthView: View {
 
                         // Submit Button
                         Button(action: performAuth) {
-                            if isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Text(mode == "login" ? "Войти" : "Зарегистрироваться")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.white)
+                            HStack {
+                                Spacer()
+                                if isLoading {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                } else {
+                                    Text(mode == "login" ? "Войти" : "Зарегистрироваться")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundColor(Theme.textPrimary)
+                                }
+                                Spacer()
                             }
+                            .frame(height: 48)
+                            .contentShape(Rectangle())
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
                         .background(Theme.accent)
                         .cornerRadius(12)
+                        .buttonStyle(.plain)
                         .disabled(isLoading)
                     }
                     .padding(24)
@@ -219,7 +241,7 @@ struct CustomTextField: View {
             TextField("", text: $text)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .foregroundColor(.white)
+                .foregroundColor(Theme.textPrimary)
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
         }
@@ -242,7 +264,7 @@ struct CustomSecureField: View {
             SecureField("", text: $text)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .foregroundColor(.white)
+                .foregroundColor(Theme.textPrimary)
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
         }
