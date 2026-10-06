@@ -4,13 +4,12 @@ import UIKit
 
 struct VrotGlassBar: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 12) {
-                content.glassEffect(.regular, in: .rect(cornerRadius: 24))
-            }
-        } else {
-            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
-        }
+        content
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
     }
 }
 
