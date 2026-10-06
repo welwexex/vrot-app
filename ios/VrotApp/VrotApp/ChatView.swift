@@ -181,8 +181,17 @@ struct ChatView: View {
     @State private var selectedMedia: PhotosPickerItem?
     @State private var showFiles = false
     @State private var attachmentError = ""
+    @State private var showBotCommands = false
+    @State private var botCommands: [[String: String]] = []
     @StateObject private var recorder = AudioRecorderManager.shared
     @StateObject private var player = AudioPlayerManager.shared
+
+    private var isBot: Bool {
+        if let b = friend["isBot"] as? Bool, b { return true }
+        if (friend["presence"] as? String) == "bot" || (friend["status"] as? String) == "bot" { return true }
+        if let u = friend["username"] as? String, u.lowercased().hasSuffix("bot") { return true }
+        return false
+    }
 
     var body: some View {
         ZStack {
@@ -246,9 +255,9 @@ struct ChatView: View {
                         Text(name)
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(Theme.textPrimary)
-                        Text((friend["presence"] as? String) == "online" ? L("В сети") : L("Не в сети"))
+                        Text(isBot ? "Бот" : ((friend["presence"] as? String) == "online" ? L("В сети") : L("Не в сети")))
                             .font(.system(size: 11))
-                            .foregroundColor(Theme.green)
+                            .foregroundColor(isBot ? Color(red: 0.65, green: 0.55, blue: 0.98) : Theme.green)
                     }
                 }
             }
@@ -256,26 +265,28 @@ struct ChatView: View {
 
             Spacer()
 
-            Button(action: {
-                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, avatarUrl: avatarUrl, isVideo: false)
-            }) {
-                Image(systemName: "phone.fill")
-                    .foregroundColor(Theme.textPrimary)
-                    .padding(9)
-                    .background(Color.white.opacity(0.12))
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
-            }
+            if !isBot {
+                Button(action: {
+                    CallManager.shared.startOutgoingCall(targetId: friendId, name: name, avatarUrl: avatarUrl, isVideo: false)
+                }) {
+                    Image(systemName: "phone.fill")
+                        .foregroundColor(Theme.textPrimary)
+                        .padding(9)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                }
 
-            Button(action: {
-                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, avatarUrl: avatarUrl, isVideo: true)
-            }) {
-                Image(systemName: "video.fill")
-                    .foregroundColor(Theme.textPrimary)
-                    .padding(9)
-                    .background(Color.white.opacity(0.12))
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                Button(action: {
+                    CallManager.shared.startOutgoingCall(targetId: friendId, name: name, avatarUrl: avatarUrl, isVideo: true)
+                }) {
+                    Image(systemName: "video.fill")
+                        .foregroundColor(Theme.textPrimary)
+                        .padding(9)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -334,13 +345,40 @@ struct ChatView: View {
             .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
         } else {
             VStack(spacing: 4) {
+              if showBotCommands {
+                botCommandsView
+              }
               if !attachmentError.isEmpty { Text(attachmentError).foregroundColor(Theme.red).font(.caption) }
-              HStack(spacing: 10) {
-                PhotosPicker(selection: $selectedMedia, matching: .any(of: [.images, .videos])) {
-                    Image(systemName: "photo.on.rectangle.angled").foregroundColor(Theme.accent)
-                }
-                Button(action: { showFiles = true }) {
-                    Image(systemName: "paperclip").foregroundColor(Theme.accent)
+              HStack(spacing: 8) {
+                if isBot {
+                    Button(action: {
+                        withAnimation(.spring()) {
+                            showBotCommands.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Меню")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color(red: 99/255, green: 102/255, blue: 241/255).opacity(0.35))
+                        .cornerRadius(14)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(Color(red: 99/255, green: 102/255, blue: 241/255).opacity(0.6), lineWidth: 1)
+                        )
+                    }
+                } else {
+                    PhotosPicker(selection: $selectedMedia, matching: .any(of: [.images, .videos])) {
+                        Image(systemName: "photo.on.rectangle.angled").foregroundColor(Theme.accent)
+                    }
+                    Button(action: { showFiles = true }) {
+                        Image(systemName: "paperclip").foregroundColor(Theme.accent)
+                    }
                 }
                 TextField("Сообщение…", text: $inputText)
                     .padding(.horizontal, 14)
@@ -388,8 +426,101 @@ struct ChatView: View {
         }
     }
 
+    @ViewBuilder
+    private var botCommandsView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("КОМАНДЫ БОТА")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Theme.textSecondary)
+                Spacer()
+                Button(action: { withAnimation { showBotCommands = false } }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(Theme.textSecondary)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+
+            if botCommands.isEmpty {
+                Text("Команды не настроены")
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(8)
+            } else {
+                ForEach(0..<botCommands.count, id: \.self) { idx in
+                    let c = botCommands[idx]["command"] ?? ""
+                    let d = botCommands[idx]["description"] ?? ""
+                    Button(action: { selectBotCommand(c) }) {
+                        HStack {
+                            Text("/" + c)
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .foregroundColor(Color(red: 165/255, green: 180/255, blue: 252/255))
+                            Spacer()
+                            Text(d)
+                                .font(.system(size: 12))
+                                .foregroundColor(Theme.textSecondary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(red: 20/255, green: 24/255, blue: 38/255).opacity(0.96))
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 14, x: 0, y: 6)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func selectBotCommand(_ cmd: String) {
+        showBotCommands = false
+        guard let id = friend["id"] as? String else { return }
+        let text = "/" + cmd
+        Task {
+            do {
+                let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": text, "clientMessageId": UUID().uuidString])
+                await MainActor.run {
+                    self.messages = deduplicatedMessages(self.messages + [sent])
+                }
+            } catch {
+                print("Failed to send command: \(error)")
+            }
+        }
+    }
+
     private func loadMessages() {
         guard let id = friend["id"] as? String else { return }
+        if isBot {
+            if let cmds = friend["botCommands"] as? [[String: Any]] {
+                self.botCommands = cmds.map { [
+                    "command": $0["command"] as? String ?? "",
+                    "description": $0["description"] as? String ?? ""
+                ]}
+            }
+            Task {
+                if let resp = try? await ApiService.shared.get(path: "/api/bots/\(id)/commands"),
+                   let list = resp["commands"] as? [[String: Any]] {
+                    await MainActor.run {
+                        self.botCommands = list.map { [
+                            "command": $0["command"] as? String ?? "",
+                            "description": $0["description"] as? String ?? ""
+                        ]}
+                    }
+                }
+            }
+        }
         Task {
             do {
                 let msgs = try await ApiService.shared.getArray(path: "/api/friends/\(id)/messages")
