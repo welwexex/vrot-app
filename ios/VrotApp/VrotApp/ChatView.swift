@@ -1,5 +1,16 @@
 import SwiftUI
 import AVFoundation
+import PhotosUI
+import UniformTypeIdentifiers
+import AVKit
+
+func deduplicatedMessages(_ messages: [[String: Any]]) -> [[String: Any]] {
+    var ids = Set<String>()
+    return messages.filter { message in
+        guard let id = message["id"] as? String else { return true }
+        return ids.insert(id).inserted
+    }
+}
 
 final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate {
     static let shared = AudioRecorderManager()
@@ -167,6 +178,9 @@ struct ChatView: View {
     @State private var inputText: String = ""
     @State private var isLoading = true
     @State private var showUserProfile = false
+    @State private var selectedMedia: PhotosPickerItem?
+    @State private var showFiles = false
+    @State private var attachmentError = ""
     @StateObject private var recorder = AudioRecorderManager.shared
     @StateObject private var player = AudioPlayerManager.shared
 
@@ -192,6 +206,24 @@ struct ChatView: View {
         .onAppear(perform: loadMessages)
         .onDisappear {
             player.stop()
+            RealtimeService.shared.onDirectMessage = nil
+        }
+        .onChange(of: selectedMedia) { item in
+            guard let item else { return }
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+                let mime = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
+                await uploadAttachment(data: data, mime: mime, name: "media-\(UUID().uuidString)")
+                selectedMedia = nil
+            }
+        }
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.image, .movie, .audio, .pdf]) { result in
+            guard case .success(let url) = result else { return }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { attachmentError = "Не удалось прочитать файл"; return }
+            let mime = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType)?.preferredMIMEType ?? "application/octet-stream"
+            Task { await uploadAttachment(data: data, mime: mime, name: url.lastPathComponent) }
         }
     }
 
@@ -204,7 +236,7 @@ struct ChatView: View {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
             }
 
             Button(action: { showUserProfile = true }) {
@@ -213,8 +245,8 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name)
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                        Text("В сети")
+                            .foregroundColor(Theme.textPrimary)
+                        Text((friend["presence"] as? String) == "online" ? L("В сети") : L("Не в сети"))
                             .font(.system(size: 11))
                             .foregroundColor(Theme.green)
                     }
@@ -225,10 +257,10 @@ struct ChatView: View {
             Spacer()
 
             Button(action: {
-                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, isVideo: false)
+                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, avatarUrl: avatarUrl, isVideo: false)
             }) {
                 Image(systemName: "phone.fill")
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
                     .padding(9)
                     .background(Color.white.opacity(0.12))
                     .clipShape(Circle())
@@ -236,10 +268,10 @@ struct ChatView: View {
             }
 
             Button(action: {
-                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, isVideo: true)
+                CallManager.shared.startOutgoingCall(targetId: friendId, name: name, avatarUrl: avatarUrl, isVideo: true)
             }) {
                 Image(systemName: "video.fill")
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
                     .padding(9)
                     .background(Color.white.opacity(0.12))
                     .clipShape(Circle())
@@ -287,7 +319,7 @@ struct ChatView: View {
                 Circle().fill(Theme.red).frame(width: 12, height: 12)
                 Text(String(format: "Запись: %.1f сек", recorder.recordDuration))
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
                 Spacer()
                 Button(action: { recorder.cancelRecording() }) {
                     Text("Отмена").font(.system(size: 14, weight: .medium)).foregroundColor(Theme.textSecondary)
@@ -301,12 +333,20 @@ struct ChatView: View {
             .background(Color.white.opacity(0.08))
             .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
         } else {
-            HStack(spacing: 10) {
+            VStack(spacing: 4) {
+              if !attachmentError.isEmpty { Text(attachmentError).foregroundColor(Theme.red).font(.caption) }
+              HStack(spacing: 10) {
+                PhotosPicker(selection: $selectedMedia, matching: .any(of: [.images, .videos])) {
+                    Image(systemName: "photo.on.rectangle.angled").foregroundColor(Theme.accent)
+                }
+                Button(action: { showFiles = true }) {
+                    Image(systemName: "paperclip").foregroundColor(Theme.accent)
+                }
                 TextField("Сообщение…", text: $inputText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(Color.white.opacity(0.08))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
                     .cornerRadius(20)
                     .overlay(
                         RoundedRectangle(cornerRadius: 20)
@@ -317,7 +357,7 @@ struct ChatView: View {
                     Button(action: { recorder.startRecording() }) {
                         Image(systemName: "mic.fill")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
                             .padding(10)
                             .background(Color.white.opacity(0.12))
                             .clipShape(Circle())
@@ -327,12 +367,13 @@ struct ChatView: View {
                     Button(action: sendMessage) {
                         Image(systemName: "paperplane.fill")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
                             .padding(10)
                             .background(Theme.accent)
                             .clipShape(Circle())
                     }
                 }
+              }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -353,7 +394,7 @@ struct ChatView: View {
             do {
                 let msgs = try await ApiService.shared.getArray(path: "/api/friends/\(id)/messages")
                 await MainActor.run {
-                    self.messages = msgs
+                    self.messages = deduplicatedMessages(msgs + self.messages)
                     self.isLoading = false
                 }
             } catch {
@@ -363,7 +404,9 @@ struct ChatView: View {
 
         RealtimeService.shared.onDirectMessage = { newMsg in
             DispatchQueue.main.async {
-                self.messages.append(newMsg)
+                guard let authorId = (newMsg["author"] as? [String: Any])?["id"] as? String,
+                      authorId == id || (newMsg["recipientId"] as? String) == id else { return }
+                self.messages = deduplicatedMessages(self.messages + [newMsg])
             }
         }
     }
@@ -376,9 +419,9 @@ struct ChatView: View {
 
         Task {
             do {
-                let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": text])
+                let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": text, "clientMessageId": UUID().uuidString])
                 await MainActor.run {
-                    self.messages.append(sent)
+                    self.messages = deduplicatedMessages(self.messages + [sent])
                 }
             } catch {
                 print("Failed to send message: \(error)")
@@ -406,16 +449,29 @@ struct ChatView: View {
                     path: "/api/friends/\(id)/messages",
                     body: [
                         "content": "🎤 Голосовое сообщение",
-                        "attachmentId": attId
+                        "attachmentId": attId,
+                        "clientMessageId": UUID().uuidString
                     ]
                 )
                 await MainActor.run {
-                    self.messages.append(sent)
+                    self.messages = deduplicatedMessages(self.messages + [sent])
                 }
             } catch {
                 print("Failed to send voice message: \(error)")
             }
         }
+    }
+
+    @MainActor private func uploadAttachment(data: Data, mime: String, name: String) async {
+        guard let id = friend["id"] as? String else { return }
+        guard data.count <= 20_000_000 else { attachmentError = "Файл больше 20 МБ"; return }
+        do {
+            let uploaded = try await ApiService.shared.uploadBinary(path: "/api/uploads", data: data, mimeType: mime, fileName: name)
+            guard let attachmentId = uploaded["id"] as? String else { throw APIError.decodingError }
+            let sent = try await ApiService.shared.post(path: "/api/friends/\(id)/messages", body: ["content": "", "attachmentId": attachmentId, "clientMessageId": UUID().uuidString])
+            messages = deduplicatedMessages(messages + [sent])
+            attachmentError = ""
+        } catch { attachmentError = error.localizedDescription }
     }
 }
 
@@ -436,6 +492,11 @@ struct ChatMessageItemView: View {
             VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
                 if let att = attachment,
                    let mime = att["mime"] as? String,
+                   mime.hasPrefix("image/"),
+                   let attUrl = att["url"] as? String {
+                    AuthenticatedAttachmentView(path: attUrl, mime: mime, name: att["name"] as? String ?? "Фото")
+                } else if let att = attachment,
+                   let mime = att["mime"] as? String,
                    mime.hasPrefix("audio/"),
                    let attUrl = att["url"] as? String {
                     // Voice message bubble
@@ -445,7 +506,7 @@ struct ChatMessageItemView: View {
                         }) {
                             Image(systemName: (player.currentlyPlayingId == msgId && player.isPlaying) ? "pause.fill" : "play.fill")
                                 .font(.system(size: 16))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
                                 .padding(10)
                                 .background(isMe ? Color.white.opacity(0.25) : Theme.accent)
                                 .clipShape(Circle())
@@ -458,7 +519,7 @@ struct ChatMessageItemView: View {
                                     .foregroundColor(.white.opacity(0.85))
                                 Text("Голосовое сообщение")
                                     .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                             }
 
                             if player.currentlyPlayingId == msgId {
@@ -491,6 +552,8 @@ struct ChatMessageItemView: View {
                         RoundedRectangle(cornerRadius: 18)
                             .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
                     )
+                } else if let att = attachment, let path = att["url"] as? String {
+                    AuthenticatedAttachmentView(path: path, mime: att["mime"] as? String ?? "", name: att["name"] as? String ?? "Файл")
                 } else if !text.isEmpty {
                     Text(text)
                         .font(.system(size: 15))
@@ -501,7 +564,7 @@ struct ChatMessageItemView: View {
                             LinearGradient(colors: [Theme.accent, Color.purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
                             : LinearGradient(colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
                         )
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                         .cornerRadius(18)
                         .overlay(
                             RoundedRectangle(cornerRadius: 18)
@@ -512,6 +575,47 @@ struct ChatMessageItemView: View {
             }
 
             if !isMe { Spacer() }
+        }
+    }
+}
+
+struct AuthenticatedAttachmentView: View {
+    let path: String
+    let mime: String
+    let name: String
+    @State private var image: UIImage?
+    @State private var localURL: URL?
+    @State private var showVideo = false
+    @State private var expanded = false
+
+    var body: some View {
+        Group {
+            if mime.hasPrefix("image/"), let image {
+                Button(action: { expanded = true }) {
+                    Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: 250, maxHeight: 300).clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .sheet(isPresented: $expanded) { Image(uiImage: image).resizable().scaledToFit().background(.black).ignoresSafeArea() }
+            } else if mime.hasPrefix("video/"), let localURL {
+                Button(action: { showVideo = true }) { Label(name, systemImage: "play.rectangle.fill") }
+                    .sheet(isPresented: $showVideo) { VideoPlayer(player: AVPlayer(url: localURL)) }
+            } else if let localURL {
+                ShareLink(item: localURL) { Label(name, systemImage: "square.and.arrow.up") }
+            } else {
+                Label(name, systemImage: mime.hasPrefix("video/") ? "video" : "paperclip")
+                    .foregroundColor(Theme.textSecondary)
+            }
+        }
+        .task(id: path) {
+            guard let url = URL(string: path.hasPrefix("https://") ? path : ApiService.shared.baseURL + path) else { return }
+            var request = URLRequest(url: url)
+            if let cookie = SessionStore.shared.cookie() { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            if mime.hasPrefix("image/") { image = UIImage(data: data) }
+            else {
+                let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "-" + name)
+                if (try? data.write(to: destination, options: .atomic)) != nil { localURL = destination }
+            }
         }
     }
 }
