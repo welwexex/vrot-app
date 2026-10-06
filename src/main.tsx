@@ -21,6 +21,7 @@ type User = {
   adminRole?: string;
   frozen?: boolean;
   isBot?: boolean;
+  botCommands?: { command: string; description: string }[];
 };
 type Community = {
   id: string;
@@ -107,6 +108,7 @@ type Friend = {
   donator?: boolean;
   mrbeastBadge?: boolean;
   isBot?: boolean;
+  botCommands?: { command: string; description: string }[];
   status: "pending" | "accepted";
   direction: "incoming" | "outgoing";
 };
@@ -685,7 +687,11 @@ function MessageItem({
                     className="inline-keyboard-button"
                     onClick={async () => {
                       if (btn.url) {
-                        window.open(btn.url, "_blank", "noopener,noreferrer");
+                        if (btn.url.startsWith('/') || btn.url.startsWith('?')) {
+                          window.location.href = btn.url;
+                        } else {
+                          window.open(btn.url, "_blank", "noopener,noreferrer");
+                        }
                       } else if (btn.callback_data) {
                         try {
                           await api("/api/bots/callback", {
@@ -1014,7 +1020,7 @@ function ProfileCard({
           <p className="profile-handle">@{user.username}</p>
           <div className="profile-status">
             {user.isBot || user.status === 'bot' ? (
-              <span className="bot-status-tag">🤖 БОТ ПЛАТФОРМЫ</span>
+              <span className="bot-status-tag">БОТ ПЛАТФОРМЫ</span>
             ) : (
               <>
                 <i className={`presence ${user.status || "offline"}`} />
@@ -1542,370 +1548,6 @@ function FaqModal({
   );
 }
 
-function BotsModal({
-  close,
-  onOpenBotChat,
-}: {
-  close: () => void;
-  onOpenBotChat: (botUser: any) => void;
-}) {
-  const [activeTab, setActiveTab] = useState<'my' | 'create' | 'docs'>('my');
-  const [bots, setBots] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [newBotName, setNewBotName] = useState('');
-  const [newBotUsername, setNewBotUsername] = useState('');
-  const [createError, setCreateError] = useState('');
-  const [createSuccess, setCreateSuccess] = useState<any>(null);
-  const [copiedToken, setCopiedToken] = useState<string | null>(null);
-
-  const loadBots = async () => {
-    setLoading(true);
-    try {
-      const data = await api<{ bots: any[] }>('/api/bots/my');
-      setBots(data.bots || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadBots();
-  }, []);
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateError('');
-    setCreateSuccess(null);
-    if (!newBotName.trim()) {
-      setCreateError('Введите имя бота');
-      return;
-    }
-    const cleanUser = newBotUsername.trim();
-    if (!cleanUser.toLowerCase().endsWith('bot')) {
-      setCreateError('Юзернейм обязан заканчиваться на bot (например: my_helper_bot)');
-      return;
-    }
-    try {
-      const res = await api<{ ok: boolean; bot: any; error?: string }>('/api/bots/create', {
-        method: 'POST',
-        body: JSON.stringify({ displayName: newBotName.trim(), username: cleanUser }),
-      });
-      if (res.ok && res.bot) {
-        setCreateSuccess(res.bot);
-        setNewBotName('');
-        setNewBotUsername('');
-        loadBots();
-      } else {
-        setCreateError(res.error || 'Ошибка создания бота');
-      }
-    } catch (err: any) {
-      setCreateError(err.message || 'Ошибка создания бота');
-    }
-  };
-
-  const handleRegenerateToken = async (botId: string) => {
-    if (!window.confirm('Вы уверены, что хотите сбросить токен? Старый токен перестанет работать.')) return;
-    try {
-      const res = await api<{ ok: boolean; token: string }>(`/api/bots/${botId}/regenerate-token`, { method: 'POST' });
-      if (res.ok) {
-        setBots(prev => prev.map(b => b.id === botId ? { ...b, token: res.token } : b));
-      }
-    } catch (err: any) {
-      alert(err.message || 'Не удалось обновить токен');
-    }
-  };
-
-  const handleDeleteBot = async (botId: string, name: string) => {
-    if (!window.confirm(`Вы действительно хотите удалить бота "${name}"? Это действие нельзя отменить.`)) return;
-    try {
-      const res = await api<{ ok: boolean }>(`/api/bots/${botId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setBots(prev => prev.filter(b => b.id !== botId));
-      }
-    } catch (err: any) {
-      alert(err.message || 'Не удалось удалить бота');
-    }
-  };
-
-  const copyToClipboard = (token: string) => {
-    navigator.clipboard.writeText(token);
-    setCopiedToken(token);
-    setTimeout(() => setCopiedToken(null), 2500);
-  };
-
-  return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <section className="modal bots-modal" role="dialog" aria-modal="true">
-        <button className="close" onClick={close} aria-label="Закрыть">×</button>
-        <div className="bots-modal-header">
-          <span className="bots-header-icon">🤖</span>
-          <div>
-            <h2>Платформа ботов VROT</h2>
-            <p className="bots-header-sub">Создание ботов, управление API и интеграция с aiogram 3.x</p>
-          </div>
-        </div>
-
-        <div className="bots-tabs">
-          <button
-            type="button"
-            className={`bots-tab-btn ${activeTab === 'my' ? 'active' : ''}`}
-            onClick={() => setActiveTab('my')}
-          >
-            Мои боты ({bots.length})
-          </button>
-          <button
-            type="button"
-            className={`bots-tab-btn ${activeTab === 'create' ? 'active' : ''}`}
-            onClick={() => setActiveTab('create')}
-          >
-            ➕ Создать бота
-          </button>
-          <button
-            type="button"
-            className={`bots-tab-btn ${activeTab === 'docs' ? 'active' : ''}`}
-            onClick={() => setActiveTab('docs')}
-          >
-            📖 Документация & aiogram
-          </button>
-        </div>
-
-        <div className="bots-tab-content">
-          {activeTab === 'my' && (
-            <div className="bots-list-container">
-              {loading ? (
-                <div className="bots-empty">Загрузка...</div>
-              ) : bots.length === 0 ? (
-                <div className="bots-empty">
-                  <div className="bots-empty-icon">🤖</div>
-                  <h3>У вас пока нет созданных ботов</h3>
-                  <p>Создайте своего первого бота через вкладку «Создать бота» или в диалоге с @BotFather!</p>
-                  <button type="button" className="button" style={{ marginTop: '12px' }} onClick={() => setActiveTab('create')}>
-                    ➕ Создать бота прямо сейчас
-                  </button>
-                </div>
-              ) : (
-                <div className="bots-cards-grid">
-                  {bots.map((b) => (
-                    <div key={b.id} className="bot-manage-card">
-                      <div className="bot-manage-top">
-                        <div className="bot-manage-avatar">
-                          {b.avatarUrl ? <img src={b.avatarUrl} alt="" /> : <span>🤖</span>}
-                        </div>
-                        <div className="bot-manage-details">
-                          <div className="bot-manage-title">
-                            <strong>{b.displayName}</strong>
-                            <span className="bot-badge">БОТ</span>
-                            {b.verified && <span style={{ color: '#38bdf8' }} title="Верифицирован">✓</span>}
-                          </div>
-                          <span className="bot-manage-username">@{b.username}</span>
-                        </div>
-                      </div>
-
-                      <div className="bot-token-box">
-                        <label>API Токен:</label>
-                        <div className="token-field-row">
-                          <input type="text" readOnly value={b.token || ''} />
-                          <button
-                            type="button"
-                            className="btn-token-copy"
-                            onClick={() => copyToClipboard(b.token)}
-                          >
-                            {copiedToken === b.token ? 'Скопировано! ✓' : 'Копировать'}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="bot-manage-actions">
-                        <button
-                          type="button"
-                          className="button subtle"
-                          onClick={() => {
-                            close();
-                            onOpenBotChat(b);
-                          }}
-                        >
-                          💬 Открыть чат
-                        </button>
-                        <button
-                          type="button"
-                          className="button subtle"
-                          onClick={() => handleRegenerateToken(b.id)}
-                        >
-                          🔄 Новый токен
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-danger-subtle"
-                          onClick={() => handleDeleteBot(b.id, b.displayName)}
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'create' && (
-            <div className="bots-create-container">
-              {createSuccess ? (
-                <div className="bot-manage-card" style={{ textAlign: 'center', padding: '24px' }}>
-                  <div style={{ fontSize: '40px', marginBottom: '8px' }}>🎉</div>
-                  <h3>Бот @{createSuccess.username} успешно создан!</h3>
-                  <p>Отображаемое имя: <strong>{createSuccess.displayName}</strong></p>
-                  <div className="bot-token-box" style={{ margin: '16px 0' }}>
-                    <label>Ваш секретный API Токен:</label>
-                    <div className="token-field-row">
-                      <input type="text" readOnly value={createSuccess.token} />
-                      <button
-                        type="button"
-                        className="btn-token-copy"
-                        onClick={() => copyToClipboard(createSuccess.token)}
-                      >
-                        {copiedToken === createSuccess.token ? 'Скопировано! ✓' : 'Копировать'}
-                      </button>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={() => {
-                        close();
-                        onOpenBotChat(createSuccess);
-                      }}
-                    >
-                      💬 Начать чат с ботом
-                    </button>
-                    <button
-                      type="button"
-                      className="button subtle"
-                      onClick={() => {
-                        setCreateSuccess(null);
-                        setActiveTab('my');
-                      }}
-                    >
-                      К списку ботов
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <form className="bots-create-form" onSubmit={handleCreate}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Отображаемое имя бота:</label>
-                    <input
-                      type="text"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff' }}
-                      placeholder="Например: Мой Помощник"
-                      value={newBotName}
-                      onChange={(e) => setNewBotName(e.target.value)}
-                      required
-                    />
-                    <small style={{ color: 'rgba(255,255,255,0.5)', marginTop: '4px', display: 'block' }}>Имя, которое видят пользователи в диалогах (2-64 символа)</small>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Юзернейм бота:</label>
-                    <input
-                      type="text"
-                      style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff' }}
-                      placeholder="Например: my_helper_bot"
-                      value={newBotUsername}
-                      onChange={(e) => setNewBotUsername(e.target.value)}
-                      required
-                    />
-                    <small style={{ color: '#a78bfa', marginTop: '4px', display: 'block' }}>⚠️ Обязано оканчиваться на <strong>bot</strong> (например: helper_bot или HelperBot)</small>
-                  </div>
-
-                  {createError && <div style={{ color: '#f87171', background: 'rgba(239,68,68,0.15)', padding: '10px 14px', borderRadius: '8px', fontSize: '13px' }}>{createError}</div>}
-
-                  <div style={{ marginTop: '12px' }}>
-                    <button type="submit" className="button" style={{ width: '100%' }}>
-                      🚀 Создать бота и получить токен
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'docs' && (
-            <div className="bots-docs-container">
-              <h3 style={{ margin: '0 0 8px' }}>Интеграция с aiogram 3.x (Python)</h3>
-              <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.8)', margin: '0 0 12px' }}>
-                Платформа ботов VROT полностью поддерживает протокол <strong>Telegram Bot API</strong>. Вы можете использовать стандартный фреймворк <code>aiogram</code>:
-              </p>
-
-              <pre className="code-snippet-box">
-{`from aiogram import Bot, Dispatcher, types
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.client.telegram import TelegramAPIServer
-
-# Укажите токен вашего бота из Vrot
-BOT_TOKEN = "ВАШ_ТОКЕН_ИЗ_VROT"
-
-session = AiohttpSession(
-    api=TelegramAPIServer.from_base("https://vrot.fun")
-)
-bot = Bot(token=BOT_TOKEN, session=session)
-dp = Dispatcher()
-
-@dp.message()
-async def echo(message: types.Message):
-    # Отправка Inline-кнопок:
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="Нажми меня", callback_data="btn_click")]
-    ])
-    await message.answer(f"Эхо: {message.text}", reply_markup=kb)
-
-@dp.callback_query()
-async def callback(cb: types.CallbackQuery):
-    await cb.answer("Кнопка нажата!")
-    await cb.message.answer("Вы нажали интерактивную кнопку!")
-
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
-if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())`}
-              </pre>
-
-              <div className="docs-note">
-                <strong>💡 Базовый URL:</strong> <code>https://vrot.fun</code>. Поддерживаются методы <code>getMe</code>, <code>getUpdates</code>, <code>sendMessage</code>, <code>editMessageText</code>, <code>answerCallbackQuery</code>, <code>setWebhook</code>.
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="bots-modal-footer">
-          <button
-            type="button"
-            className="btn-botfather-chat"
-            onClick={async () => {
-              try {
-                const res = await api<{ ok: boolean; botFather: any }>('/api/bots/botfather/open', { method: 'POST' });
-                if (res.ok && res.botFather) {
-                  close();
-                  onOpenBotChat(res.botFather);
-                }
-              } catch (e) {
-                console.error(e);
-              }
-            }}
-          >
-            🤖 Написать @BotFather
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
 
 function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined),
@@ -2302,7 +1944,6 @@ function Messenger({
     [view, setView] = useState<"friends" | "community">("friends"),
     [error, setError] = useState(""),
     [showSettings, setShowSettings] = useState(false),
-    [showBotsModal, setShowBotsModal] = useState(false),
     [showAdmin, setShowAdmin] = useState(false),
     [showCommunityDialog, setShowCommunityDialog] = useState(false),
     [showInviteFriends, setShowInviteFriends] = useState(false),
@@ -2367,6 +2008,31 @@ function Messenger({
       refreshInvitations(),
     ]).catch((e) => setError(e.message));
     subscribeToPush(false).catch(() => {});
+    const params = new URLSearchParams(window.location.search);
+    const dmParam = params.get("dm");
+    if (dmParam) {
+      if (dmParam.toLowerCase() === "botfather") {
+        api<{ ok: boolean; botFather: any }>("/api/bots/botfather/open", { method: "POST" })
+          .then((res) => {
+            if (res.ok && res.botFather) {
+              setDirectFriend(res.botFather);
+              setView("friends");
+              setMobileChannels(false);
+            }
+          })
+          .catch(console.error);
+      } else {
+        api<{ user: any }>(`/api/users/${dmParam}/profile`)
+          .then((res) => {
+            if (res.user) {
+              setDirectFriend(res.user);
+              setView("friends");
+              setMobileChannels(false);
+            }
+          })
+          .catch(console.error);
+      }
+    }
     const refresh = () => refreshFriends().catch(() => {});
     const incomingCall = (x: IncomingCall) => {
       if (x.expiresAt <= Date.now()) return;
@@ -2875,38 +2541,6 @@ function Messenger({
             >
                 <Icon name="friends" /> {tr("Друзья","Friends")}
             </button>
-            <div className="botfather-sidebar-card">
-              <button
-                type="button"
-                className={`channel ${directFriend?.username?.toLowerCase() === 'botfather' ? 'active' : ''}`}
-                onClick={async () => {
-                  try {
-                    const res = await api<{ ok: boolean; botFather: any }>('/api/bots/botfather/open', { method: 'POST' });
-                    if (res.ok && res.botFather) {
-                      setDirectFriend(res.botFather);
-                      setView("friends");
-                      setMobileChannels(false);
-                      refreshFriends();
-                    }
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-              >
-                <span style={{ fontSize: '18px' }}>🤖</span>
-                <span style={{ flex: 1, textAlign: 'left', fontWeight: 600 }}>BotFather</span>
-                <span className="bot-badge" style={{ fontSize: '10px' }}>БОТ</span>
-              </button>
-              <button
-                type="button"
-                className="channel"
-                style={{ color: '#a78bfa', fontSize: '13px' }}
-                onClick={() => setShowBotsModal(true)}
-              >
-                <span>⚙️</span>
-                <span>Боты & API</span>
-              </button>
-            </div>
             <p className="section-label">{tr("Чаты","Chats")}</p>
             <div className="friend-mini-list">
               {friends
@@ -3317,26 +2951,6 @@ function Messenger({
           }}
         />
       )}
-      {showBotsModal && (
-        <BotsModal
-          close={() => setShowBotsModal(false)}
-          onOpenBotChat={(b) => {
-            setDirectFriend({
-              id: b.id,
-              username: b.username,
-              displayName: b.displayName || b.username,
-              avatarUrl: b.avatarUrl || null,
-              status: "bot",
-              presence: "bot",
-              isBot: true,
-              verified: Boolean(b.verified),
-            });
-            setView("friends");
-            setMobileChannels(false);
-            refreshFriends();
-          }}
-        />
-      )}
       {showAdmin && (
         <AdminPanel
           actor={profile}
@@ -3611,6 +3225,30 @@ function FriendsPanel({
     [busy, setBusy] = useState(false),
     [active, setActive] = useState<Friend | null>(openFriend),
     [dm, setDm] = useState<Message[]>([]);
+  const [showBotMenu, setShowBotMenu] = useState(false);
+  const [botCommands, setBotCommands] = useState<{ command: string; description: string }[]>([]);
+
+  const isBot = Boolean(active?.isBot || (active as any)?.presence === 'bot' || (active as any)?.status === 'bot' || active?.username?.toLowerCase().endsWith('bot'));
+
+  useEffect(() => {
+    setShowBotMenu(false);
+    if (!active || !isBot) {
+      setBotCommands([]);
+      return;
+    }
+    if (active.botCommands && active.botCommands.length > 0) {
+      setBotCommands(active.botCommands);
+    } else {
+      api<{ ok: boolean; commands: { command: string; description: string }[] }>(`/api/bots/${active.id}/commands`)
+        .then((res) => {
+          if (res.ok && Array.isArray(res.commands)) {
+            setBotCommands(res.commands);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [active?.id, isBot]);
+
   const accepted = friends.filter((f) => f.status === "accepted"),
     incoming = friends.filter(
       (f) => f.status === "pending" && f.direction === "incoming",
@@ -3801,22 +3439,24 @@ function FriendsPanel({
               <UserBadges user={active} />
             </span>
           </div>
-          <div className="call-actions">
-            <button
-              className="icon-button"
-              onClick={() => call(active, false)}
-              title="Голосовой звонок"
-            >
-              <Icon name="phone" />
-            </button>
-            <button
-              className="icon-button"
-              onClick={() => call(active, true)}
-              title="Видеозвонок"
-            >
-              <Icon name="video" />
-            </button>
-          </div>
+          {!isBot && (
+            <div className="call-actions">
+              <button
+                className="icon-button"
+                onClick={() => call(active, false)}
+                title="Голосовой звонок"
+              >
+                <Icon name="phone" />
+              </button>
+              <button
+                className="icon-button"
+                onClick={() => call(active, true)}
+                title="Видеозвонок"
+              >
+                <Icon name="video" />
+              </button>
+            </div>
+          )}
         </header>
         <div className="messages">
           {dm.length ? (
@@ -3889,6 +3529,72 @@ function FriendsPanel({
                 });
               }}
             />
+            {isBot && (
+              <div className="bot-menu-wrapper" style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="bot-menu-button"
+                  onClick={() => setShowBotMenu((v) => !v)}
+                  title="Команды бота"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                  </svg>
+                  <span>Меню</span>
+                </button>
+                {showBotMenu && (
+                  <div className="bot-menu-popup">
+                    <div style={{ padding: "4px 8px 8px", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", color: "rgba(255, 255, 255, 0.5)", fontWeight: 700 }}>
+                        Команды бота
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowBotMenu(false)}
+                        style={{ background: "none", border: "none", color: "rgba(255, 255, 255, 0.5)", cursor: "pointer", fontSize: "16px", lineHeight: 1 }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "6px" }}>
+                      {botCommands.length > 0 ? (
+                        botCommands.map((cmd) => (
+                          <button
+                            key={cmd.command}
+                            type="button"
+                            className="bot-menu-item"
+                            onClick={async () => {
+                              setShowBotMenu(false);
+                              const input = document.getElementById("direct-message-input") as HTMLInputElement | null;
+                              if (input) input.value = `/${cmd.command}`;
+                              try {
+                                const m = await api<Message>(`/api/friends/${active.id}/messages`, {
+                                  method: "POST",
+                                  body: JSON.stringify({ content: `/${cmd.command}`, clientMessageId: crypto.randomUUID() }),
+                                });
+                                if (input) input.value = "";
+                                setDm((x) => (x.some((y) => y.id === m.id) ? x : [...x, m]));
+                              } catch (e) {
+                                fail((e as Error).message);
+                              }
+                            }}
+                          >
+                            <strong>/{cmd.command}</strong>
+                            <span>{cmd.description}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div style={{ padding: "12px 8px", fontSize: "12px", color: "rgba(255, 255, 255, 0.5)", textAlign: "center" }}>
+                          Команды не настроены
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <input
               id="direct-message-input"
               name="message"
