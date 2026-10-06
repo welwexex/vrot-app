@@ -26,9 +26,12 @@ jobs:
       - name: Package into .ipa
         run: |
           cd ios/VrotApp
+          rm -rf Payload VrotApp.ipa
           mkdir -p Payload
-          cp -r build/Release-iphoneos/VrotApp.app Payload/
-          zip -r VrotApp.ipa Payload
+          cp -R build/Release-iphoneos/VrotApp.app Payload/
+          xattr -rc Payload
+          codesign --force --deep --sign - Payload/VrotApp.app
+          zip -qry VrotApp.ipa Payload
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
