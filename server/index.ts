@@ -649,9 +649,9 @@ app.get('/download/vrot.ipa',(_req,res)=>{
   res.status(404).send('IPA файл пока формируется на сервере. Пожалуйста, подождите минуту и повторите попытку.');
 });
 
-const web=path.resolve('dist');app.use('/api/web',(req,res,next)=>{res.setHeader('Cross-Origin-Resource-Policy','cross-origin');next();},express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.use(express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/socket.io'))return next();res.setHeader('Cache-Control','no-store, max-age=0');res.sendFile(path.join(web,'index.html'));});
-app.use((err:any,_req:Request,res:Response,_next:NextFunction)=>{if(err instanceof z.ZodError)return res.status(400).json({error:'Проверьте введённые данные',fields:err.flatten().fieldErrors});console.error(err);res.status(500).json({error:'Внутренняя ошибка'});});
-
 setupBotRoutes(app, io);
+
+const web=path.resolve('dist');app.use('/api/web',(req,res,next)=>{res.setHeader('Cross-Origin-Resource-Policy','cross-origin');next();},express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.use(express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/socket.io')||req.path.startsWith('/bot'))return next();res.setHeader('Cache-Control','no-store, max-age=0');res.sendFile(path.join(web,'index.html'));});
+app.use((err:any,_req:Request,res:Response,_next:NextFunction)=>{if(err instanceof z.ZodError)return res.status(400).json({error:'Проверьте введённые данные',fields:err.flatten().fieldErrors});console.error(err);res.status(500).json({error:'Внутренняя ошибка'});});
 
 await migrate();await loadSystemSettings();await initPushKeys();const port=Number(process.env.PORT||3000);server.listen(port,'0.0.0.0',()=>console.log(`Vrot.fun listening on ${port}`));
