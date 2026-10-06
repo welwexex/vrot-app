@@ -38,7 +38,7 @@ async function sessionUser(token?:string){
   if(!token)return null; const q=await pool.query(`SELECT u.id,u.username,u.email,u.avatar_url,u.display_name,u.bio,u.banner_url,u.status,u.verified,u.donator,u.mrbeast_badge,u.admin_role,u.frozen_at,u.banned_at,u.ban_reason,u.is_bot FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.deleted_at IS NULL`,[sha256(token)]); return q.rows[0]||null;
 }
 const auth=wrap(async(req,res,next)=>{const user=await sessionUser(req.cookies.vrot_session);if(!user)return res.status(401).json({error:'Нужен вход'});if(user.banned_at)return res.status(403).json({error:user.ban_reason?`Аккаунт заблокирован: ${user.ban_reason}`:'Аккаунт заблокирован'});if(user.frozen_at&&['POST','PUT','PATCH','DELETE'].includes(req.method)&&req.path!=='/auth/logout')return res.status(423).json({error:'Аккаунт заморожен: доступен только просмотр данных на момент заморозки'});req.user=user;next();});
-const publicUser=(r:any)=>({id:r.id,username:r.username,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,bannerUrl:r.banner_url||null,bio:r.bio||'',status:r.is_bot?'bot':(r.status||'online'),isBot:Boolean(r.is_bot),verified:Boolean(r.verified),donator:Boolean(r.donator),mrbeastBadge:Boolean(r.mrbeast_badge),adminRole:r.admin_role||'user',frozen:Boolean(r.frozen_at)});
+const publicUser=(r:any)=>({id:r.id,username:r.username,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,bannerUrl:r.banner_url||null,bio:r.bio||'',status:r.is_bot?'bot':(r.status||'online'),isBot:Boolean(r.is_bot),verified:Boolean(r.verified),donator:Boolean(r.donator),mrbeastBadge:Boolean(r.mrbeast_badge),adminRole:r.admin_role||'user',frozen:Boolean(r.frozen_at),botCommands:r.bot_commands||[]});
 const adminRoles=['moderator','admin','owner'];
 const requireAdmin=(req:Request,res:Response,next:NextFunction)=>adminRoles.includes(req.user?.admin_role||'')?next():res.status(403).json({error:'Нужны права администратора'});
 
@@ -290,14 +290,14 @@ app.post('/api/invites/:code/join',auth,wrap(async(req,res)=>{const q=await pool
 app.get('/api/communities/:id/members',auth,wrap(async(req,res)=>{const communityId=String(req.params.id);if(!await isMember(req.user!.id,communityId))return res.status(403).json({error:'Нет доступа'});const q=await pool.query(`SELECT u.id,u.username,u.display_name,u.avatar_url,u.status presence,u.verified,u.donator,u.mrbeast_badge,cm.role,cm.joined_at,COALESCE((SELECT json_agg(json_build_object('id',r.id,'name',r.name,'color',r.color,'position',r.position) ORDER BY r.position DESC) FROM community_roles r WHERE r.community_id=cm.community_id AND ((r.kind='admin' AND cm.role='admin') OR EXISTS(SELECT 1 FROM community_member_roles mr WHERE mr.community_id=cm.community_id AND mr.user_id=cm.user_id AND mr.role_id=r.id))),'[]'::json) roles FROM community_members cm JOIN users u ON u.id=cm.user_id WHERE cm.community_id=$1 AND u.deleted_at IS NULL ORDER BY CASE cm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,u.username_key`,[communityId]);res.json(q.rows.map(r=>({...r,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,mrbeastBadge:Boolean(r.mrbeast_badge),presence:computePresence(r.id,r.presence)}))); }));
 app.delete('/api/communities/:id/members/me',auth,wrap(async(req,res)=>{const communityId=String(req.params.id),role=await memberRole(req.user!.id,communityId);if(!role)return res.status(404).json({error:'Вы не состоите в сообществе'});if(role==='owner')return res.status(409).json({error:'Владелец не может покинуть сообщество'});await pool.query('DELETE FROM community_members WHERE community_id=$1 AND user_id=$2',[communityId,req.user!.id]);await audit(req.user!.id,'community.left',communityId);res.status(204).end();}));
 
-app.get('/api/users/search',auth,wrap(async(req,res)=>{const qText=String(req.query.q||'').trim().toLocaleLowerCase('ru');if(qText.length<2)return res.json([]);const q=await pool.query(`SELECT id,username,display_name,avatar_url,status,verified,donator,mrbeast_badge,is_bot FROM users WHERE deleted_at IS NULL AND banned_at IS NULL AND id<>$1 AND username_key LIKE $2 ORDER BY CASE WHEN username_key=$3 THEN 0 ELSE 1 END,username_key LIMIT 12`,[req.user!.id,`${qText}%`,qText]);res.json(q.rows.map(r=>({...publicUser(r),status:computePresence(r.id,r.status,r.is_bot)})));}));
-app.get('/api/users/:id/profile',auth,wrap(async(req,res)=>{const q=await pool.query('SELECT id,username,display_name,avatar_url,banner_url,bio,status,verified,donator,mrbeast_badge,admin_role,frozen_at,is_bot FROM users WHERE id=$1 AND deleted_at IS NULL AND banned_at IS NULL',[req.params.id]);if(!q.rows[0])return res.status(404).json({error:'Профиль не найден'});res.json({user:{...publicUser(q.rows[0]),status:computePresence(q.rows[0].id,q.rows[0].status,q.rows[0].is_bot)}});}));
-app.get('/api/friends',auth,wrap(async(req,res)=>{const q=await pool.query(`SELECT f.status,f.created_at,CASE WHEN f.requester_id=$1 THEN 'outgoing' ELSE 'incoming' END direction,u.id,u.username,u.display_name,u.avatar_url,u.status presence,u.verified,u.donator,u.mrbeast_badge,u.is_bot FROM friendships f JOIN users u ON u.id=CASE WHEN f.requester_id=$1 THEN f.addressee_id ELSE f.requester_id END WHERE (f.requester_id=$1 OR f.addressee_id=$1) AND u.deleted_at IS NULL ORDER BY CASE f.status WHEN 'pending' THEN 0 ELSE 1 END,u.username_key`,[req.user!.id]);res.json(q.rows.map(r=>({...r,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,mrbeastBadge:Boolean(r.mrbeast_badge),isBot:Boolean(r.is_bot),presence:computePresence(r.id,r.presence,r.is_bot)})));}));
+app.get('/api/users/search',auth,wrap(async(req,res)=>{const rawQ=String(req.query.q||'').trim().toLocaleLowerCase('ru');const qText=rawQ.replace(/^@/,'');if(qText.length<2)return res.json([]);const q=await pool.query(`SELECT id,username,display_name,avatar_url,status,verified,donator,mrbeast_badge,is_bot,bot_commands FROM users WHERE deleted_at IS NULL AND banned_at IS NULL AND id<>$1 AND (username_key LIKE $2 OR lower(display_name) LIKE $2) ORDER BY CASE WHEN username_key=$3 THEN 0 ELSE 1 END,username_key LIMIT 12`,[req.user!.id,`${qText}%`,qText]);res.json(q.rows.map(r=>({...publicUser(r),status:computePresence(r.id,r.status,r.is_bot)})));}));
+app.get('/api/users/:id/profile',auth,wrap(async(req,res)=>{const q=await pool.query('SELECT id,username,display_name,avatar_url,banner_url,bio,status,verified,donator,mrbeast_badge,admin_role,frozen_at,is_bot,bot_commands FROM users WHERE id=$1 AND deleted_at IS NULL AND banned_at IS NULL',[req.params.id]);if(!q.rows[0])return res.status(404).json({error:'Профиль не найден'});res.json({user:{...publicUser(q.rows[0]),status:computePresence(q.rows[0].id,q.rows[0].status,q.rows[0].is_bot)}});}));
+app.get('/api/friends',auth,wrap(async(req,res)=>{const q=await pool.query(`SELECT f.status,f.created_at,CASE WHEN f.requester_id=$1 THEN 'outgoing' ELSE 'incoming' END direction,u.id,u.username,u.display_name,u.avatar_url,u.status presence,u.verified,u.donator,u.mrbeast_badge,u.is_bot,u.bot_commands FROM friendships f JOIN users u ON u.id=CASE WHEN f.requester_id=$1 THEN f.addressee_id ELSE f.requester_id END WHERE (f.requester_id=$1 OR f.addressee_id=$1) AND u.deleted_at IS NULL ORDER BY CASE f.status WHEN 'pending' THEN 0 ELSE 1 END,u.username_key`,[req.user!.id]);res.json(q.rows.map(r=>({...r,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,mrbeastBadge:Boolean(r.mrbeast_badge),isBot:Boolean(r.is_bot),botCommands:r.bot_commands||[],presence:computePresence(r.id,r.presence,r.is_bot)})));}));
 app.post('/api/friends/requests',auth,rateLimit({windowMs:60_000,limit:20}),wrap(async(req,res)=>{const d=z.object({username:z.string().trim().min(3).max(32)}).parse(req.body),target=(await pool.query('SELECT id,username,is_bot FROM users WHERE username_key=$1 AND deleted_at IS NULL',[d.username.toLocaleLowerCase('ru')])).rows[0];if(!target||target.id===req.user!.id)return res.status(404).json({error:'Пользователь не найден'});if(target.is_bot){await pool.query("INSERT INTO friendships(requester_id,addressee_id,status) VALUES($1,$2,'accepted') ON CONFLICT (requester_id,addressee_id) DO UPDATE SET status='accepted'",[req.user!.id,target.id]);io.to(`user:${req.user!.id}`).emit('friend:updated');return res.status(201).json({id:target.id,username:target.username,status:'accepted',direction:'outgoing'});}const existing=(await pool.query('SELECT status FROM friendships WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)',[req.user!.id,target.id])).rows[0];if(existing)return res.status(409).json({error:existing.status==='accepted'?'Вы уже друзья':'Заявка уже существует'});await pool.query('INSERT INTO friendships(requester_id,addressee_id) VALUES($1,$2)',[req.user!.id,target.id]);await audit(req.user!.id,'friend.requested',target.id);io.to(`user:${target.id}`).emit('friend:updated');res.status(201).json({id:target.id,username:target.username,status:'pending',direction:'outgoing'});}));
 app.post('/api/friends/:id/accept',auth,wrap(async(req,res)=>{const q=await pool.query("UPDATE friendships SET status='accepted' WHERE requester_id=$1 AND addressee_id=$2 AND status='pending' RETURNING requester_id",[req.params.id,req.user!.id]);if(!q.rows[0])return res.status(404).json({error:'Заявка не найдена'});await audit(req.user!.id,'friend.accepted',String(req.params.id));io.to(`user:${req.params.id}`).emit('friend:updated');res.status(204).end();}));
 app.delete('/api/friends/:id',auth,wrap(async(req,res)=>{const q=await pool.query('DELETE FROM friendships WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1) RETURNING status',[req.user!.id,req.params.id]);if(!q.rows[0])return res.status(404).json({error:'Связь не найдена'});await audit(req.user!.id,'friend.removed',String(req.params.id));io.to(`user:${req.params.id}`).emit('friend:updated');res.status(204).end();}));
 
-async function areFriends(a:string,b:string){return Boolean((await pool.query("SELECT 1 FROM friendships WHERE status='accepted' AND ((requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1))",[a,b])).rowCount);}
+async function areFriends(a:string,b:string){const botCheck=await pool.query('SELECT 1 FROM users WHERE (id=$1 OR id=$2) AND is_bot=true',[a,b]);if(botCheck.rowCount)return true;return Boolean((await pool.query("SELECT 1 FROM friendships WHERE status='accepted' AND ((requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1))",[a,b])).rowCount);}
 const messageSchema=z.object({content:z.string().trim().max(4000).default(''),attachmentId:z.string().uuid().nullable().optional(),replyToId:z.string().uuid().nullable().optional(),clientMessageId:z.string().uuid().optional()}).refine(d=>Boolean(d.content||d.attachmentId),{message:'Сообщение пустое'});
 async function ownAttachment(userId:string,id?:string|null){if(!id)return true;return Boolean((await pool.query('SELECT 1 FROM attachments WHERE id=$1 AND uploader_id=$2',[id,userId])).rowCount);}
 
@@ -348,10 +348,14 @@ app.post('/api/friends/:id/messages',auth,rateLimit({windowMs:10_000,limit:30}),
   // Handle Bot interaction if friend is a bot
   const bfId = await getBotFatherId();
   if (friendId === bfId) {
+    await pool.query("INSERT INTO friendships(requester_id,addressee_id,status) VALUES($1,$2,'accepted') ON CONFLICT (requester_id,addressee_id) DO UPDATE SET status='accepted'",[req.user!.id,bfId]).catch(()=>{});
+    io.to(`user:${req.user!.id}`).emit('friend:updated');
     void handleBotFatherMessage(io, req.user!.id, d.content);
   } else {
-    void pool.query('SELECT id, is_bot FROM users WHERE id = $1', [friendId]).then(botRes => {
+    void pool.query('SELECT id, is_bot FROM users WHERE id = $1', [friendId]).then(async botRes => {
       if (botRes.rows[0]?.is_bot) {
+        await pool.query("INSERT INTO friendships(requester_id,addressee_id,status) VALUES($1,$2,'accepted') ON CONFLICT (requester_id,addressee_id) DO UPDATE SET status='accepted'",[req.user!.id,friendId]).catch(()=>{});
+        io.to(`user:${req.user!.id}`).emit('friend:updated');
         void queueBotUpdate(friendId, {
           message: {
             message_id: id,
@@ -651,7 +655,32 @@ app.get('/download/vrot.ipa',(_req,res)=>{
 
 setupBotRoutes(app, io);
 
-const web=path.resolve('dist');app.use('/api/web',(req,res,next)=>{res.setHeader('Cross-Origin-Resource-Policy','cross-origin');next();},express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.use(express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/socket.io')||req.path.startsWith('/bot'))return next();res.setHeader('Cache-Control','no-store, max-age=0');res.sendFile(path.join(web,'index.html'));});
+const web=path.resolve('dist');app.use('/api/web',(req,res,next)=>{res.setHeader('Cross-Origin-Resource-Policy','cross-origin');next();},express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));app.use(express.static(web,{maxAge:process.env.NODE_ENV==='production'?'1h':0,index:false,immutable:false}));
+
+const devHtmlPath = () => {
+  const p1 = path.resolve('public', 'dev.html');
+  const p2 = path.resolve('dist', 'dev.html');
+  return fs.existsSync(p1) ? p1 : fs.existsSync(p2) ? p2 : p1;
+};
+
+app.get(['/dev', '/dev.html'], (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.sendFile(devHtmlPath());
+});
+
+app.use((req, res, next) => {
+  const host = (req.get('host') || '').toLowerCase();
+  if (host.startsWith('dev.') || host === 'dev.vrot.fun') {
+    if (req.path.startsWith('/api') || req.path.startsWith('/bot') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    return res.sendFile(devHtmlPath());
+  }
+  next();
+});
+
+app.get('*',(req,res,next)=>{if(req.path.startsWith('/api/')||req.path.startsWith('/socket.io')||req.path.startsWith('/bot'))return next();res.setHeader('Cache-Control','no-store, max-age=0');res.sendFile(path.join(web,'index.html'));});
 app.use((err:any,_req:Request,res:Response,_next:NextFunction)=>{if(err instanceof z.ZodError)return res.status(400).json({error:'Проверьте введённые данные',fields:err.flatten().fieldErrors});console.error(err);res.status(500).json({error:'Внутренняя ошибка'});});
 
 await migrate();await loadSystemSettings();await initPushKeys();const port=Number(process.env.PORT||3000);server.listen(port,'0.0.0.0',()=>console.log(`Vrot.fun listening on ${port}`));
