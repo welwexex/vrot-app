@@ -87,10 +87,11 @@ export async function sendBotDm(io: Server, botId: string, recipientId: string, 
   const markupJson = replyMarkup ? JSON.stringify(replyMarkup) : null;
   const enc = encrypt(text);
 
-  await pool.query(
-    'INSERT INTO direct_messages (id, sender_id, recipient_id, content_enc, reply_markup) VALUES ($1, $2, $3, $4, $5)',
+  const res = await pool.query(
+    'INSERT INTO direct_messages (id, sender_id, recipient_id, content_enc, reply_markup) VALUES ($1, $2, $3, $4, $5) RETURNING created_at',
     [msgId, botId, recipientId, enc, markupJson]
   );
+  const createdAt = res.rows[0]?.created_at ? new Date(res.rows[0].created_at).toISOString() : new Date().toISOString();
 
   const botUserQ = await pool.query('SELECT id, username, display_name, avatar_url, verified FROM users WHERE id = $1', [botId]);
   const botUser = botUserQ.rows[0];
@@ -98,15 +99,17 @@ export async function sendBotDm(io: Server, botId: string, recipientId: string, 
   const dto = {
     id: msgId,
     content: text,
-    created_at: new Date().toISOString(),
+    created_at: createdAt,
     edited_at: null,
     deleted_at: null,
     replyTo: null,
     reactions: [],
     replyMarkup: replyMarkup || undefined,
+    recipientId,
     author: {
       id: botId,
       username: botUser?.username || 'bot',
+      displayName: botUser?.display_name || botUser?.username || 'Bot',
       avatarUrl: botUser?.avatar_url || null,
       verified: Boolean(botUser?.verified),
       isBot: true,
@@ -115,7 +118,8 @@ export async function sendBotDm(io: Server, botId: string, recipientId: string, 
     }
   };
 
-  io.to(`user:${recipientId}`).emit('dm:created', { message: dto, recipientId });
+  io.to(`user:${recipientId}`).emit('dm:new', dto);
+  io.to(`user:${botId}`).emit('dm:new', dto);
   return { msgId, dto };
 }
 
@@ -129,25 +133,27 @@ export async function handleBotFatherMessage(io: Server, userId: string, text: s
   // Command: /start or /help
   if (lower === '/start' || lower === '/help') {
     botFatherStates.delete(userId);
-    const replyText = `👋 Привет! Я **BotFather** — отец ботов мессенджера VROT.
+    const replyText = `Привет! Я **BotFather** — отец ботов мессенджера VROT.
 
-Я помогу тебе создать нового бота, управлять его настройками и получить токен для Bot API.
+Я помогу создать нового бота, настроить меню команд и получить API токен.
 
-🔹 **Доступные команды:**
+**Доступные команды:**
 /newbot — создать нового бота
-/mybots — список твоих ботов и управление токенами
-/help — это справочное сообщение
+/mybots — список ваших ботов и настройки
+/setcommands — настроить меню команд бота
+/help — справка и документация
 
-🚀 Боты VROT совместимы с библиотекой **aiogram** и Telegram Bot API!`;
+Боты VROT полностью совместимы с библиотекой **aiogram 3.x** и Telegram Bot API!`;
 
     const markup = {
       inline_keyboard: [
         [
-          { text: '➕ Создать нового бота', callback_data: 'bf_newbot' },
-          { text: '🤖 Мои боты', callback_data: 'bf_mybots' }
+          { text: 'Создать нового бота', callback_data: 'bf_newbot' },
+          { text: 'Мои боты', callback_data: 'bf_mybots' }
         ],
         [
-          { text: '📖 Документация и aiogram', callback_data: 'bf_docs' }
+          { text: 'Настроить команды меню', callback_data: 'bf_setcommands' },
+          { text: 'Документация и aiogram', callback_data: 'bf_docs' }
         ]
       ]
     };
@@ -158,7 +164,7 @@ export async function handleBotFatherMessage(io: Server, userId: string, text: s
   // Command: /newbot
   if (lower === '/newbot') {
     botFatherStates.set(userId, { step: 'awaiting_name' });
-    await sendBotDm(io, bfId, userId, `Хорошо, давайте создадим нового бота!\n\nКак мы его назовём? Отправьте отображаемое имя для вашего бота (например: **Мой Помощник**):`);
+    await sendBotDm(io, bfId, userId, `Давайте создадим нового бота!\n\nКак мы его назовём? Отправьте отображаемое имя для вашего бота (например: **Мой Помощник**):`);
     return;
   }
 
@@ -169,49 +175,111 @@ export async function handleBotFatherMessage(io: Server, userId: string, text: s
     return;
   }
 
-  // State machine for /newbot
+  // Command: /token
+  if (lower === '/token') {
+    const q = await pool.query('SELECT id, username, display_name FROM users WHERE bot_owner_id = $1 AND is_bot = true AND deleted_at IS NULL', [userId]);
+    if (!q.rows.length) {
+      await sendBotDm(io, bfId, userId, 'У вас пока нет созданных ботов. Создайте бота с помощью /newbot.');
+      return;
+    }
+    if (q.rows.length === 1) {
+      const b = q.rows[0];
+      const tokQ = await pool.query('SELECT bot_token FROM users WHERE id = $1', [b.id]);
+      await sendBotDm(io, bfId, userId, `API Токен для @${b.username}:\n\`${tokQ.rows[0]?.bot_token}\``);
+      return;
+    }
+    const buttons = q.rows.map(b => ([{ text: `${b.display_name} (@${b.username})`, callback_data: `bf_bot_${b.id}` }]));
+    await sendBotDm(io, bfId, userId, 'Выберите бота для просмотра токена:', { inline_keyboard: buttons });
+    return;
+  }
+
+  // Command: /setcommands
+  if (lower === '/setcommands') {
+    const q = await pool.query('SELECT id, username, display_name FROM users WHERE bot_owner_id = $1 AND is_bot = true AND deleted_at IS NULL', [userId]);
+    if (!q.rows.length) {
+      await sendBotDm(io, bfId, userId, 'У вас пока нет созданных ботов. Создайте бота с помощью /newbot.');
+      return;
+    }
+    if (q.rows.length === 1) {
+      const b = q.rows[0];
+      botFatherStates.set(userId, { step: 'awaiting_commands_list', targetBotId: b.id });
+      await sendBotDm(io, bfId, userId, `Пришлите список команд для @${b.username} в формате:\n\ncommand1 - Описание 1\ncommand2 - Описание 2\n\nПример:\nstart - Главное меню\nhelp - Помощь и справка\nsettings - Настройки`);
+      return;
+    }
+    botFatherStates.set(userId, { step: 'awaiting_setcommands_bot' });
+    const buttons = q.rows.map(b => ([{ text: `${b.display_name} (@${b.username})`, callback_data: `bf_cmd_bot_${b.id}` }]));
+    await sendBotDm(io, bfId, userId, 'Выберите бота для настройки меню команд:', { inline_keyboard: buttons });
+    return;
+  }
+
+  // State: awaiting_commands_list
+  if (state?.step === 'awaiting_commands_list' && state.targetBotId) {
+    const lines = trimmed.split('\n');
+    const commandsList: { command: string; description: string }[] = [];
+    for (const line of lines) {
+      const parts = line.split(/[-–—:]/);
+      if (parts.length >= 2) {
+        const cmd = parts[0].trim().replace(/^\//, '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+        const desc = parts.slice(1).join('-').trim();
+        if (cmd && desc) {
+          commandsList.push({ command: cmd, description: desc });
+        }
+      }
+    }
+    if (!commandsList.length) {
+      await sendBotDm(io, bfId, userId, `Не удалось распознать команды. Пришлите список строками вида:\n\ncommand - Описание\n\nНапример:\nstart - Главное меню\nhelp - Справка`);
+      return;
+    }
+
+    await pool.query('UPDATE users SET bot_commands = $1 WHERE id = $2', [JSON.stringify(commandsList), state.targetBotId]);
+    const botQ = await pool.query('SELECT username FROM users WHERE id = $1', [state.targetBotId]);
+    const botName = botQ.rows[0]?.username || 'бота';
+    botFatherStates.delete(userId);
+    await sendBotDm(io, bfId, userId, `Успешно! Список команд для @${botName} сохранён.\nТеперь кнопка «Меню» в чате с ботом отображает эти команды.`);
+    return;
+  }
+
+  // State: awaiting_name
   if (state?.step === 'awaiting_name') {
     if (trimmed.length < 2 || trimmed.length > 64) {
       await sendBotDm(io, bfId, userId, `Имя должно быть длиной от 2 до 64 символов. Попробуйте ещё раз:`);
       return;
     }
     botFatherStates.set(userId, { step: 'awaiting_username', tempName: trimmed });
-    await sendBotDm(io, bfId, userId, `Отлично! Теперь выберите юзернейм для вашего бота.\n\n⚠️ **Правило:** юзернейм обязан оканчиваться на **bot** (например: \`tetris_bot\` или \`HelperBot\`). Он может содержать только латинские буквы, цифры и знак подчеркивания:`);
+    await sendBotDm(io, bfId, userId, `Отлично! Теперь выберите юзернейм для вашего бота.\n\nПравило: юзернейм обязан оканчиваться на bot (например: tetris_bot или HelperBot). Допустимы латинские буквы, цифры и подчеркивание:`);
     return;
   }
 
+  // State: awaiting_username
   if (state?.step === 'awaiting_username') {
-    const rawUsername = trimmed;
+    const rawUsername = trimmed.replace(/^@/, '');
     const lowerUser = rawUsername.toLowerCase();
 
     if (!lowerUser.endsWith('bot')) {
-      await sendBotDm(io, bfId, userId, `❌ Юзернейм бота обязан заканчиваться на **bot** (например: \`${lowerUser}_bot\` или \`${lowerUser}bot\`).\nПопробуйте ещё раз:`);
+      await sendBotDm(io, bfId, userId, `Юзернейм бота обязан заканчиваться на bot (например: ${lowerUser}_bot или ${lowerUser}bot).\nПопробуйте ещё раз:`);
       return;
     }
 
     if (!/^[a-zA-Z0-9_]{3,32}$/.test(rawUsername)) {
-      await sendBotDm(io, bfId, userId, `❌ Юзернейм должен содержать от 3 до 32 символов (только латинские буквы a-z, цифры 0-9 и подчеркивание).\nПопробуйте ещё раз:`);
+      await sendBotDm(io, bfId, userId, `Юзернейм должен содержать от 3 до 32 символов (только латинские буквы a-z, цифры 0-9 и подчеркивание).\nПопробуйте ещё раз:`);
       return;
     }
 
-    // Check availability
     const check = await pool.query('SELECT id FROM users WHERE username_key = $1', [lowerUser]);
     if (check.rowCount) {
-      await sendBotDm(io, bfId, userId, `❌ К сожалению, имя пользователя @${rawUsername} уже занято. Пожалуйста, придумайте другое:`);
+      await sendBotDm(io, bfId, userId, `К сожалению, имя пользователя @${rawUsername} уже занято. Пожалуйста, придумайте другое:`);
       return;
     }
 
-    // Create the bot!
     const newBotId = uuid();
     const token = `vrot_${randomToken(32)}`;
     const tempName = state.tempName || rawUsername;
 
     await pool.query(`
-      INSERT INTO users (id, username, username_key, email, password_hash, birth_date, display_name, is_bot, bot_owner_id, bot_token, status, verified)
-      VALUES ($1, $2, $3, $4, '$argon2id$fake', '2000-01-01', $5, true, $6, $7, 'bot', false)
+      INSERT INTO users (id, username, username_key, email, password_hash, birth_date, display_name, is_bot, bot_owner_id, bot_token, status, verified, bot_commands)
+      VALUES ($1, $2, $3, $4, '$argon2id$fake', '2000-01-01', $5, true, $6, $7, 'bot', false, '[{"command":"start","description":"Запустить бота"},{"command":"help","description":"Помощь"}]'::jsonb)
     `, [newBotId, rawUsername, lowerUser, `${lowerUser}@bot.vrot.fun`, tempName, userId, token]);
 
-    // Establish mutual friendship so bot appears in user's chat list
     await pool.query(`
       INSERT INTO friendships (requester_id, addressee_id, status)
       VALUES ($1, $2, 'accepted'), ($2, $1, 'accepted')
@@ -220,17 +288,17 @@ export async function handleBotFatherMessage(io: Server, userId: string, text: s
 
     botFatherStates.delete(userId);
 
-    const successMsg = `🎉 **Поздравляем! Ваш бот успешно создан!**
+    const successMsg = `Поздравляем! Ваш бот успешно создан!
 
-🤖 Имя: **${tempName}**
-🔗 Юзернейм: @${rawUsername}
+Имя: **${tempName}**
+Юзернейм: @${rawUsername}
 
-🔑 **Токен доступа к Bot API:**
+**API Токен:**
 \`${token}\`
 
-⚠️ *Храните токен в тайне. Любой, у кого есть токен, может управлять ботом.*
+*Храните токен в тайне. С его помощью можно управлять ботом через Bot API.*
 
-📚 **Как подключить в Python с aiogram:**
+**Подключение в Python (aiogram 3.x):**
 \`\`\`python
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -246,8 +314,8 @@ dp = Dispatcher()
     const markup = {
       inline_keyboard: [
         [
-          { text: `💬 Открыть чат с @${rawUsername}`, url: `/?dm=${newBotId}` },
-          { text: '⚙️ Управление ботом', callback_data: `bf_bot_${newBotId}` }
+          { text: `Открыть чат с @${rawUsername}`, url: `/?dm=${newBotId}` },
+          { text: 'Настроить команды меню', callback_data: `bf_cmd_bot_${newBotId}` }
         ]
       ]
     };
@@ -256,8 +324,28 @@ dp = Dispatcher()
     return;
   }
 
-  // Default fallback
-  await sendBotDm(io, bfId, userId, `Я не понял вашу команду. Отправьте /newbot, чтобы создать бота, или /mybots, чтобы увидеть список ваших ботов.`);
+  // Conversational response to any greeting or unhandled message
+  const fallbackMsg = `Привет! Я BotFather — официальный отец ботов VROT.
+
+Чем я могу помочь?
+/newbot — создать бота
+/mybots — список моих ботов
+/setcommands — настроить команды меню бота
+/help — справка и примеры кода`;
+
+  const fallbackMarkup = {
+    inline_keyboard: [
+      [
+        { text: 'Создать нового бота', callback_data: 'bf_newbot' },
+        { text: 'Мои боты', callback_data: 'bf_mybots' }
+      ],
+      [
+        { text: 'Настроить команды меню', callback_data: 'bf_setcommands' },
+        { text: 'Документация и aiogram', callback_data: 'bf_docs' }
+      ]
+    ]
+  };
+  await sendBotDm(io, bfId, userId, fallbackMsg, fallbackMarkup);
 }
 
 async function showMyBots(io: Server, bfId: string, userId: string) {
@@ -267,18 +355,18 @@ async function showMyBots(io: Server, bfId: string, userId: string) {
   );
   if (!q.rows.length) {
     const markup = {
-      inline_keyboard: [[{ text: '➕ Создать первого бота', callback_data: 'bf_newbot' }]]
+      inline_keyboard: [[{ text: 'Создать первого бота', callback_data: 'bf_newbot' }]]
     };
     await sendBotDm(io, bfId, userId, `У вас пока нет созданных ботов. Нажмите кнопку ниже или введите /newbot, чтобы создать своего первого бота:`, markup);
     return;
   }
 
   const buttons = q.rows.map(b => ([
-    { text: `🤖 ${b.display_name} (@${b.username})${b.verified ? ' ✓' : ''}`, callback_data: `bf_bot_${b.id}` }
+    { text: `${b.display_name} (@${b.username})${b.verified ? ' [Подтверждён]' : ''}`, callback_data: `bf_bot_${b.id}` }
   ]));
-  buttons.push([{ text: '➕ Создать ещё одного бота', callback_data: 'bf_newbot' }]);
+  buttons.push([{ text: 'Создать ещё одного бота', callback_data: 'bf_newbot' }]);
 
-  await sendBotDm(io, bfId, userId, `📋 **Ваши боты в VROT:**\nВыберите бота для просмотра настроек и токена:`, { inline_keyboard: buttons });
+  await sendBotDm(io, bfId, userId, `**Ваши боты в VROT:**\nВыберите бота для просмотра настроек и токена:`, { inline_keyboard: buttons });
 }
 
 // Handle inline button callback for BotFather
@@ -296,16 +384,47 @@ export async function handleBotFatherCallback(io: Server, userId: string, callba
     return;
   }
 
+  if (callbackData === 'bf_setcommands') {
+    const q = await pool.query('SELECT id, username, display_name FROM users WHERE bot_owner_id = $1 AND is_bot = true AND deleted_at IS NULL', [userId]);
+    if (!q.rows.length) {
+      await sendBotDm(io, bfId, userId, 'У вас пока нет созданных ботов. Создайте бота с помощью /newbot.');
+      return;
+    }
+    if (q.rows.length === 1) {
+      const b = q.rows[0];
+      botFatherStates.set(userId, { step: 'awaiting_commands_list', targetBotId: b.id });
+      await sendBotDm(io, bfId, userId, `Пришлите список команд для @${b.username} в формате:\n\ncommand1 - Описание 1\ncommand2 - Описание 2\n\nПример:\nstart - Главное меню\nhelp - Помощь и справка\nsettings - Настройки`);
+      return;
+    }
+    botFatherStates.set(userId, { step: 'awaiting_setcommands_bot' });
+    const buttons = q.rows.map(b => ([{ text: `${b.display_name} (@${b.username})`, callback_data: `bf_cmd_bot_${b.id}` }]));
+    await sendBotDm(io, bfId, userId, 'Выберите бота для настройки меню команд:', { inline_keyboard: buttons });
+    return;
+  }
+
+  if (callbackData.startsWith('bf_cmd_bot_')) {
+    const botId = callbackData.replace('bf_cmd_bot_', '');
+    const q = await pool.query('SELECT id, username, display_name FROM users WHERE id = $1 AND bot_owner_id = $2 AND is_bot = true', [botId, userId]);
+    const b = q.rows[0];
+    if (!b) {
+      await sendBotDm(io, bfId, userId, 'Бот не найден или у вас нет доступа.');
+      return;
+    }
+    botFatherStates.set(userId, { step: 'awaiting_commands_list', targetBotId: b.id });
+    await sendBotDm(io, bfId, userId, `Пришлите список команд для @${b.username} в формате:\n\ncommand1 - Описание 1\ncommand2 - Описание 2\n\nПример:\nstart - Главное меню\nhelp - Помощь и справка\nsettings - Настройки`);
+    return;
+  }
+
   if (callbackData === 'bf_docs') {
-    const docs = `📚 **Документация Bot API для VROT**
+    const docs = `**Документация Bot API для VROT**
 
 Наш API полностью совместим с форматом **Telegram Bot API**! Это значит, что вы можете использовать любую популярную библиотеку:
 - **Python:** \`aiogram\`, \`python-telegram-bot\`, \`telebot\`
 - **Node.js:** \`telegraf\`, \`grammy\`
 
-🌐 **Base API URL:** \`https://vrot.fun\` (или \`https://api.vrot.fun\`)
+**Base API URL:** \`https://vrot.fun\` (или \`https://api.vrot.fun\`)
 
-🔹 **Пример с aiogram 3.x:**
+**Пример с aiogram 3.x:**
 \`\`\`python
 import asyncio
 from aiogram import Bot, Dispatcher, types
@@ -339,7 +458,7 @@ if __name__ == "__main__":
 \`\`\``;
     await sendBotDm(io, bfId, userId, docs, {
       inline_keyboard: [
-        [{ text: '🤖 Мои боты', callback_data: 'bf_mybots' }, { text: '➕ Создать бота', callback_data: 'bf_newbot' }]
+        [{ text: 'Мои боты', callback_data: 'bf_mybots' }, { text: 'Создать бота', callback_data: 'bf_newbot' }]
       ]
     });
     return;
@@ -357,11 +476,11 @@ if __name__ == "__main__":
       return;
     }
 
-    const info = `🤖 **Управление ботом @${bot.username}**
+    const info = `**Управление ботом @${bot.username}**
 
 • **Имя:** ${bot.display_name}
 • **Юзернейм:** @${bot.username}
-• **Верификация:** ${bot.verified ? '✅ Подтверждён' : '❌ Обычный'}
+• **Верификация:** ${bot.verified ? 'Подтверждён' : 'Обычный'}
 • **Токен:** \`${bot.bot_token}\`
 
 Выберите действие:`;
@@ -369,12 +488,15 @@ if __name__ == "__main__":
     const markup = {
       inline_keyboard: [
         [
-          { text: '🔄 Сгенерировать новый токен', callback_data: `bf_token_${bot.id}` },
-          { text: '💬 Открыть чат', url: `/?dm=${bot.id}` }
+          { text: 'Настроить команды меню', callback_data: `bf_cmd_bot_${bot.id}` },
+          { text: 'Сгенерировать новый токен', callback_data: `bf_token_${bot.id}` }
         ],
         [
-          { text: '❌ Удалить этого бота', callback_data: `bf_del_${bot.id}` },
-          { text: '🔙 Назад к списку', callback_data: 'bf_mybots' }
+          { text: 'Открыть чат с ботом', url: `/?dm=${bot.id}` },
+          { text: 'Удалить этого бота', callback_data: `bf_del_${bot.id}` }
+        ],
+        [
+          { text: 'Назад к списку', callback_data: 'bf_mybots' }
         ]
       ]
     };
@@ -390,7 +512,7 @@ if __name__ == "__main__":
       [newToken, botId, userId]
     );
     if (q.rows[0]) {
-      await sendBotDm(io, bfId, userId, `🔑 **Новый токен для @${q.rows[0].username}:**\n\`${newToken}\`\n\nСтарый токен аннулирован.`);
+      await sendBotDm(io, bfId, userId, `**Новый токен для @${q.rows[0].username}:**\n\`${newToken}\`\n\nСтарый токен аннулирован.`);
     }
     return;
   }
@@ -402,7 +524,7 @@ if __name__ == "__main__":
       [botId, userId]
     );
     if (q.rows[0]) {
-      await sendBotDm(io, bfId, userId, `🗑️ Бот **@${q.rows[0].username}** успешно удалён.`);
+      await sendBotDm(io, bfId, userId, `Бот **@${q.rows[0].username}** успешно удалён.`);
       await showMyBots(io, bfId, userId);
     }
     return;
@@ -637,6 +759,34 @@ export function setupBotRoutes(app: Express, io: Server) {
           return res.json({ ok: true, result: true });
         }
 
+        case 'setmycommands': {
+          let cmds = params.commands;
+          if (typeof cmds === 'string') {
+            try { cmds = JSON.parse(cmds); } catch { cmds = []; }
+          }
+          if (!Array.isArray(cmds)) {
+            return res.status(400).json({ ok: false, error_code: 400, description: 'commands must be an array of BotCommand objects' });
+          }
+          const cleanList = cmds.map((c: any) => ({
+            command: String(c.command || '').trim().replace(/^\//, '').toLowerCase().replace(/[^a-z0-9_]/g, ''),
+            description: String(c.description || '').trim()
+          })).filter(c => c.command && c.description);
+
+          await pool.query('UPDATE users SET bot_commands = $1 WHERE id = $2', [JSON.stringify(cleanList), bot.id]);
+          return res.json({ ok: true, result: true });
+        }
+
+        case 'getmycommands': {
+          const q = await pool.query('SELECT bot_commands FROM users WHERE id = $1', [bot.id]);
+          const cmds = q.rows[0]?.bot_commands || [];
+          return res.json({ ok: true, result: cmds });
+        }
+
+        case 'deletemycommands': {
+          await pool.query("UPDATE users SET bot_commands = '[]'::jsonb WHERE id = $1", [bot.id]);
+          return res.json({ ok: true, result: true });
+        }
+
         default: {
           return res.status(400).json({ ok: false, error_code: 400, description: `Method '${method}' not implemented yet` });
         }
@@ -843,5 +993,15 @@ export function setupBotRoutes(app: Express, io: Server) {
     await pool.query('UPDATE users SET deleted_at = now() WHERE id = $1', [id]);
     await pool.query('DELETE FROM bot_webhooks WHERE bot_id = $1', [id]);
     return res.json({ ok: true });
+  });
+
+  // REST API: Get commands for a bot
+  app.get('/api/bots/:id/commands', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const botQ = await pool.query('SELECT id, username, bot_commands, is_bot FROM users WHERE id = $1 AND deleted_at IS NULL', [id]);
+    if (!botQ.rows[0] || !botQ.rows[0].is_bot) {
+      return res.status(404).json({ error: 'Бот не найден' });
+    }
+    return res.json({ ok: true, commands: botQ.rows[0].bot_commands || [] });
   });
 }
