@@ -572,6 +572,48 @@ struct ChatMessageItemView: View {
                         )
                         .frame(maxWidth: 280, alignment: isMe ? .trailing : .leading)
                 }
+
+                if let replyMarkup = msg["replyMarkup"] as? [String: Any],
+                   let inlineKeyboard = replyMarkup["inline_keyboard"] as? [[[String: Any]]] {
+                    VStack(spacing: 6) {
+                        ForEach(0..<inlineKeyboard.count, id: \.self) { rowIdx in
+                            let row = inlineKeyboard[rowIdx]
+                            HStack(spacing: 6) {
+                                ForEach(0..<row.count, id: \.self) { btnIdx in
+                                    let btn = row[btnIdx]
+                                    let btnText = btn["text"] as? String ?? ""
+                                    let btnUrl = btn["url"] as? String
+                                    let callbackData = btn["callback_data"] as? String
+
+                                    Button(action: {
+                                        if let urlStr = btnUrl, let url = URL(string: urlStr) {
+                                            UIApplication.shared.open(url)
+                                        } else if let cb = callbackData {
+                                            let authorId = (msg["author"] as? [String: Any])?["id"] as? String ?? (msg["author_id"] as? String ?? "")
+                                            let messageId = msg["id"] as? String ?? ""
+                                            ApiService.shared.post(path: "/api/bots/callback", body: [
+                                                "messageId": messageId,
+                                                "authorId": authorId,
+                                                "callbackData": cb
+                                            ]) { _ in }
+                                        }
+                                    }) {
+                                        Text(btnText)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .padding(.vertical, 8)
+                                            .padding(.horizontal, 12)
+                                            .frame(maxWidth: .infinity)
+                                            .background(Theme.glassCard)
+                                            .cornerRadius(12)
+                                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: 280)
+                }
             }
 
             if !isMe { Spacer() }
