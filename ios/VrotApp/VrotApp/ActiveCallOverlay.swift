@@ -88,6 +88,7 @@ struct ActiveCallOverlay: View {
     @ObservedObject var callManager = CallManager.shared
     @ObservedObject var media = NativeCallMedia.shared
     @State private var isCameraEnabled = true
+    @State private var isSpeakerOn = true
     let onMinimize: () -> Void
 
     private var allParticipantsCount: Int {
@@ -102,6 +103,22 @@ struct ActiveCallOverlay: View {
             return first.name
         }
         return "Собеседник"
+    }
+
+    private func toggleSpeaker() {
+        isSpeakerOn.toggle()
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if isSpeakerOn {
+                try session.overrideOutputAudioPort(.speaker)
+                UIDevice.current.isProximityMonitoringEnabled = false
+            } else {
+                try session.overrideOutputAudioPort(.none)
+                UIDevice.current.isProximityMonitoringEnabled = true
+            }
+        } catch {
+            print("Failed to toggle speaker port: \(error)")
+        }
     }
 
     var body: some View {
@@ -252,20 +269,31 @@ struct ActiveCallOverlay: View {
                 Spacer()
 
                 // Call Controls
-                HStack(spacing: 18) {
+                HStack(spacing: 16) {
                     // Mute Audio
                     Button(action: {
                         callManager.state.isMuted.toggle()
                         media.setMuted(callManager.state.isMuted)
                     }) {
                         Image(systemName: callManager.state.isMuted ? "mic.slash.fill" : "mic.fill")
-                            .font(.system(size: 22))
+                            .font(.system(size: 20))
                             .foregroundColor(Theme.textPrimary)
-                            .frame(width: 58, height: 58)
+                            .frame(width: 54, height: 54)
                             .background(callManager.state.isMuted ? Theme.red : Theme.card.opacity(0.85))
                             .clipShape(Circle())
                     }
                     .accessibilityLabel(callManager.state.isMuted ? "Включить микрофон" : "Выключить микрофон")
+
+                    // Toggle Speaker / Earpiece with proximity monitoring
+                    Button(action: toggleSpeaker) {
+                        Image(systemName: isSpeakerOn ? "speaker.wave.3.fill" : "ear.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(Theme.textPrimary)
+                            .frame(width: 54, height: 54)
+                            .background(isSpeakerOn ? Theme.accent.opacity(0.85) : Theme.card.opacity(0.85))
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel(isSpeakerOn ? "Громкая связь (динамик)" : "Разговорный динамик (ухо)")
 
                     // Toggle Camera (if video call)
                     if callManager.state.isVideo {
@@ -274,60 +302,59 @@ struct ActiveCallOverlay: View {
                             media.setVideoEnabled(isCameraEnabled)
                         }) {
                             Image(systemName: isCameraEnabled ? "video.fill" : "video.slash.fill")
-                                .font(.system(size: 20))
+                                .font(.system(size: 19))
                                 .foregroundColor(Theme.textPrimary)
-                                .frame(width: 58, height: 58)
+                                .frame(width: 54, height: 54)
                                 .background(Theme.card.opacity(0.85))
                                 .clipShape(Circle())
                         }
                     }
 
-                    // In-app Screen Share
-                    Button(action: {
-                        if media.isScreenSharing { media.stopScreenShare() }
-                        else { media.startScreenShare() }
-                    }) {
-                        Image(systemName: media.isScreenSharing ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white)
-                            .frame(width: 58, height: 58)
-                            .background(media.isScreenSharing ? Theme.accent : Theme.card.opacity(0.85))
-                            .clipShape(Circle())
-                    }
-                    .accessibilityLabel(media.isScreenSharing ? "Остановить показ экрана VROT" : "Показ экрана VROT")
-
-                    // Global System Screen Share (System Broadcast across all apps)
+                    // Global System Screen Share (Broadcast Picker across all apps)
                     ZStack {
+                        Image(systemName: "rectangle.on.rectangle")
+                            .font(.system(size: 19))
+                            .foregroundColor(.white)
                         SystemBroadcastPickerView()
-                            .frame(width: 44, height: 44)
+                            .frame(width: 54, height: 54)
+                            .opacity(0.02)
                     }
-                    .frame(width: 58, height: 58)
+                    .frame(width: 54, height: 54)
                     .background(Theme.card.opacity(0.85))
                     .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
-                    .accessibilityLabel("Глобальная трансляция экрана по всему телефону")
+                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                    .accessibilityLabel("Трансляция экрана всего устройства")
 
                     // End Call
                     Button(action: {
                         callManager.endCall()
                     }) {
                         Image(systemName: "phone.down.fill")
-                            .font(.system(size: 26))
+                            .font(.system(size: 24))
                             .foregroundColor(Theme.textPrimary)
-                            .frame(width: 66, height: 66)
+                            .frame(width: 62, height: 62)
                             .background(Theme.red)
                             .clipShape(Circle())
                     }
                     .accessibilityLabel("Завершить вызов")
                 }
 
-                VStack(spacing: 4) {
-                    Text("Экран VROT  •  Глобальный экран по всему телефону")
+                HStack(spacing: 8) {
+                    Text(isSpeakerOn ? "Динамик: Громкая связь" : "Динамик: В ухе (экран гаснет)")
                         .font(.caption2)
                         .foregroundColor(Theme.textSecondary)
                 }
-                .padding(.bottom, 40)
+                .padding(.bottom, 36)
             }
+        }
+        .onAppear {
+            isSpeakerOn = true
+            let session = AVAudioSession.sharedInstance()
+            try? session.overrideOutputAudioPort(.speaker)
+            UIDevice.current.isProximityMonitoringEnabled = false
+        }
+        .onDisappear {
+            UIDevice.current.isProximityMonitoringEnabled = false
         }
     }
 }
