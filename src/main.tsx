@@ -7027,18 +7027,26 @@ function Settings({
 
           <hr className="subtle-hr" />
           <div className="android-apk-box">
-            <h4>📱 Мобильное приложение Android</h4>
+            <h4>📱 Мобильные приложения</h4>
             <p>
-              Полное APK-приложение VROT для Android с системными входящими
-              звонками (на весь экран) и уведомлениями.
+              Официальные мобильные приложения VROT для Android и iOS (iPhone / iPad) с поддержкой аудио/видеозвонков, реакций на сообщения и ботов.
             </p>
-            <a
-              href="/download/vrot.apk"
-              className="button secondary apk-download-btn"
-              download="vrot.apk"
-            >
-              📥 Скачать VROT для Android (.apk)
-            </a>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '12px' }}>
+              <a
+                href="/download/vrot.apk"
+                className="button secondary apk-download-btn"
+                download="vrot.apk"
+              >
+                📥 Скачать для Android (.apk)
+              </a>
+              <a
+                href="/download/vrot.ipa"
+                className="button secondary apk-download-btn"
+                download="vrot.ipa"
+              >
+                🍏 Скачать для iPhone (.ipa / eSign)
+              </a>
+            </div>
           </div>
         </div>
 
