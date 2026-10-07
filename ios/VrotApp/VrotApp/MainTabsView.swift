@@ -141,18 +141,40 @@ struct FriendsTabView: View {
     @State private var selectedSubtab = 0 // 0: Все, 1: В сети, 2: Группы, 3: Ожидание
     @State private var showAddFriendSheet = false
     @State private var showCreateGroupSheet = false
+    @State private var showCreateCommunitySheet = false
     @State private var selectedProfileUser: [String: Any]? = nil
     @State private var searchUsername = ""
     @State private var searchResults: [[String: Any]] = []
     @State private var isSearching = false
     @State private var actionMessage = ""
+    @State private var searchText = ""
 
     private var acceptedFriends: [[String: Any]] {
         friends.filter { ($0["status"] as? String ?? "") == "accepted" }
     }
 
+    private var filteredAcceptedFriends: [[String: Any]] {
+        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return acceptedFriends }
+        return acceptedFriends.filter {
+            let name = ($0["displayName"] as? String ?? "").lowercased()
+            let u = ($0["username"] as? String ?? "").lowercased()
+            return name.contains(q) || u.contains(q)
+        }
+    }
+
     private var onlineFriends: [[String: Any]] {
         acceptedFriends.filter { ($0["presence"] as? String ?? "") == "online" }
+    }
+
+    private var filteredOnlineFriends: [[String: Any]] {
+        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return onlineFriends }
+        return onlineFriends.filter {
+            let name = ($0["displayName"] as? String ?? "").lowercased()
+            let u = ($0["username"] as? String ?? "").lowercased()
+            return name.contains(q) || u.contains(q)
+        }
     }
 
     private var pendingIncoming: [[String: Any]] {
@@ -166,59 +188,65 @@ struct FriendsTabView: View {
     var body: some View {
         ZStack {
             VStack(alignment: .leading, spacing: 12) {
-                // Header with "Группа" and "Добавить" buttons
+                // Header with unified + Action Menu
                 HStack {
                     Text(L("Чаты"))
                         .font(.system(size: 26, weight: .bold))
                         .foregroundColor(Theme.textPrimary)
                     Spacer()
 
-                    Button(action: { showCreateGroupSheet = true }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "person.3.fill")
-                                .font(.system(size: 13, weight: .bold))
-                            Text("Группа")
-                                .font(.system(size: 12, weight: .semibold))
+                    Menu {
+                        Button(action: { showAddFriendSheet = true }) {
+                            Label("Начать личный чат", systemImage: "bubble.left.and.bubble.right.fill")
                         }
-                        .foregroundColor(Theme.textPrimary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(Theme.glassCard)
-                        .cornerRadius(10)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Theme.glassBorder, lineWidth: 1)
-                        )
-                    }
-
-                    Button(action: { showAddFriendSheet = true }) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "person.badge.plus")
-                                .font(.system(size: 13, weight: .bold))
-                            Text("Добавить")
-                                .font(.system(size: 12, weight: .semibold))
+                        Button(action: { showCreateGroupSheet = true }) {
+                            Label("Создать группу", systemImage: "person.3.fill")
                         }
-                        .foregroundColor(Theme.textPrimary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(Theme.accent)
-                        .cornerRadius(10)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                        )
+                        Button(action: { showCreateCommunitySheet = true }) {
+                            Label("Создать сообщество", systemImage: "globe.americas.fill")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Theme.accent)
+                            .clipShape(Circle())
+                            .shadow(color: Theme.accent.opacity(0.35), radius: 6, y: 2)
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
 
+                // Telegram-style search bar
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textSecondary)
+                    TextField("Поиск пользователей, ботов, групп…", text: $searchText)
+                        .font(.system(size: 14))
+                        .foregroundColor(Theme.textPrimary)
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(Theme.textSecondary)
+                                .font(.system(size: 14))
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.08))
+                .cornerRadius(12)
+                .padding(.horizontal, 16)
+
                 // Subtabs: Все | В сети | Группы | Ожидание
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        FriendSubtabButton(title: "Все (\(acceptedFriends.count))", isSelected: selectedSubtab == 0) {
+                        FriendSubtabButton(title: "Все (\(filteredAcceptedFriends.count))", isSelected: selectedSubtab == 0) {
                             selectedSubtab = 0
                         }
-                        FriendSubtabButton(title: "В сети (\(onlineFriends.count))", isSelected: selectedSubtab == 1) {
+                        FriendSubtabButton(title: "В сети (\(filteredOnlineFriends.count))", isSelected: selectedSubtab == 1) {
                             selectedSubtab = 1
                         }
                         FriendSubtabButton(title: "Группы (\(communities.count))", isSelected: selectedSubtab == 2) {
@@ -242,9 +270,9 @@ struct FriendsTabView: View {
                 Group {
                     switch selectedSubtab {
                     case 0:
-                        friendsListView(list: acceptedFriends, emptyText: "Список друзей пуст. Нажмите «Добавить», чтобы найти друзей")
+                        friendsListView(list: filteredAcceptedFriends, emptyText: "Список чатов пуст. Нажмите «+», чтобы начать")
                     case 1:
-                        friendsListView(list: onlineFriends, emptyText: "Никого из друзей нет в сети")
+                        friendsListView(list: filteredOnlineFriends, emptyText: "Никого из друзей нет в сети")
                     case 2:
                         groupsListView
                     case 3:
@@ -269,6 +297,11 @@ struct FriendsTabView: View {
             CreateGroupSheet(friends: friends) { created in
                 onRefresh()
                 onSelectCommunity(created)
+            }
+        }
+        .sheet(isPresented: $showCreateCommunitySheet) {
+            CreateCommunitySheet {
+                onRefresh()
             }
         }
     }
@@ -399,10 +432,7 @@ struct FriendsTabView: View {
                 let isBot = (friend["isBot"] as? Bool ?? false) || presence == "bot"
 
                 HStack(spacing: 12) {
-                    AvatarBadgeView(avatarUrl: avatarUrl, name: name, size: 44)
-                        .onTapGesture {
-                            selectedProfileUser = friend
-                        }
+                    AvatarBadgeView(avatarUrl: avatarUrl, name: name, size: 44, presence: isBot ? nil : presence)
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
@@ -439,7 +469,7 @@ struct FriendsTabView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(Theme.accent)
                         } else {
-                            Text(presence == "online" ? "В сети" : "Не в сети")
+                            Text(presence == "online" ? "В сети" : (presence == "dnd" ? "Не беспокоить" : (presence == "idle" ? "Неактивен" : "Не в сети")))
                                 .font(.system(size: 12))
                                 .foregroundColor(presence == "online" ? Theme.green : Theme.textSecondary)
                         }
@@ -447,31 +477,13 @@ struct FriendsTabView: View {
 
                     Spacer()
 
-                    // Call buttons
-                    Button(action: { onCallFriend(friend, false) }) {
-                        Image(systemName: "phone.fill")
-                            .foregroundColor(Theme.green)
-                            .padding(8)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(BorderlessButtonStyle())
-
-                    Button(action: { onCallFriend(friend, true) }) {
-                        Image(systemName: "video.fill")
-                            .foregroundColor(Theme.accent)
-                            .padding(8)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(BorderlessButtonStyle())
-
                     // Delete friend button
                     Button(action: { removeFriend(id: id) }) {
                         Image(systemName: "xmark")
-                            .foregroundColor(Theme.red)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(Theme.textSecondary.opacity(0.6))
                             .padding(8)
-                            .background(Color.white.opacity(0.08))
+                            .background(Color.white.opacity(0.06))
                             .clipShape(Circle())
                     }
                     .buttonStyle(BorderlessButtonStyle())
@@ -969,6 +981,112 @@ struct CreateGroupSheet: View {
     }
 }
 
+struct CreateCommunitySheet: View {
+    let onCreated: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var description = ""
+    @State private var isCreating = false
+    @State private var errorMessage = ""
+
+    var body: some View {
+        ZStack {
+            Theme.darkBg.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Text("Создать сообщество")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(Theme.textSecondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("НАЗВАНИЕ")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Theme.textSecondary)
+                        .padding(.horizontal, 16)
+                    CustomTextField(placeholder: "Название сообщества", text: $name)
+                        .padding(.horizontal, 16)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ОПИСАНИЕ (НЕОБЯЗАТЕЛЬНО)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Theme.textSecondary)
+                        .padding(.horizontal, 16)
+                    CustomTextField(placeholder: "Кратко о вашем сообществе", text: $description)
+                        .padding(.horizontal, 16)
+                }
+
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.red)
+                        .padding(.horizontal, 16)
+                }
+
+                Spacer()
+
+                Button(action: createCommunity) {
+                    HStack {
+                        Spacer()
+                        if isCreating {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text("Создать сообщество")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 14)
+                    .background(name.trimmingCharacters(in: .whitespaces).isEmpty ? Theme.card : Theme.accent)
+                    .cornerRadius(14)
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.2), lineWidth: 1))
+                }
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func createCommunity() {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return }
+        isCreating = true
+        errorMessage = ""
+
+        Task {
+            do {
+                _ = try await ApiService.shared.post(path: "/api/communities", body: [
+                    "name": n,
+                    "description": description.trimmingCharacters(in: .whitespaces)
+                ])
+                await MainActor.run {
+                    isCreating = false
+                    dismiss()
+                    onCreated()
+                }
+            } catch {
+                await MainActor.run {
+                    isCreating = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
 struct FriendSubtabButton: View {
     let title: String
     let isSelected: Bool
@@ -1360,12 +1478,16 @@ struct ProfileTabView: View {
     let onUpdated: () -> Void
     @AppStorage("vrot_theme") private var appTheme = "dark"
     @AppStorage("vrot_language") private var appLanguage = "ru"
+    @AppStorage("vrot_chat_wallpaper") private var chatWallpaper = ""
 
     @State private var showSettingsModal = false
-    @State private var settingsSection = "profile"
+    @State private var settingsSection = "profile_appearance"
     @State private var displayName = ""
     @State private var bio = ""
     @State private var selectedStatus = "online"
+    @State private var allowMessages = "everyone"
+    @State private var allowCalls = "everyone"
+    @State private var showBio = "everyone"
     @State private var currentPassword = ""
     @State private var newPassword = ""
     @State private var isSaving = false
@@ -1374,6 +1496,9 @@ struct ProfileTabView: View {
     @State private var currentBanner: String? = nil
     @State private var selectedAvatarItem: PhotosPickerItem? = nil
     @State private var selectedBannerItem: PhotosPickerItem? = nil
+    @State private var selectedWallpaperItem: PhotosPickerItem? = nil
+    @State private var blockedUsers: [[String: Any]] = []
+    @State private var isLoadingBlocks = false
 
     var body: some View {
         ScrollView {
@@ -1490,7 +1615,16 @@ struct ProfileTabView: View {
                         selectedStatus = user["status"] as? String ?? "online"
                         currentAvatar = user["avatarUrl"] as? String
                         currentBanner = user["bannerUrl"] as? String
+                        if let p = user["privacySettings"] as? [String: Any] {
+                            allowMessages = p["allowMessages"] as? String ?? "everyone"
+                            allowCalls = p["allowCalls"] as? String ?? "everyone"
+                            showBio = p["showBio"] as? String ?? "everyone"
+                        }
+                        if let sWall = user["chatWallpaper"] as? String, !sWall.isEmpty, chatWallpaper.isEmpty {
+                            chatWallpaper = sWall
+                        }
                         showSettingsModal = true
+                        loadBlockedUsers()
                     }) {
                         HStack {
                             Image(systemName: "person.crop.circle.badge.checkmark")
@@ -1509,7 +1643,6 @@ struct ProfileTabView: View {
                         .cornerRadius(12)
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 1))
                     }
-
                 }
                 .padding(.horizontal, 16)
 
@@ -1535,159 +1668,413 @@ struct ProfileTabView: View {
                 Theme.surface.ignoresSafeArea()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        Text(L("Настройки профиля"))
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(Theme.textPrimary)
-                            .padding(.top, 10)
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack {
+                            Text(L("Настройки профиля"))
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(Theme.textPrimary)
+                            Spacer()
+                            Button(action: { showSettingsModal = false }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(Theme.textSecondary)
+                            }
+                        }
+                        .padding(.top, 10)
 
+                        // 3 Specific Sections: Profile & Appearance, Security, Customization
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach([("profile", "Профиль"), ("appearance", "Оформление"), ("security", "Безопасность"), ("app", "Приложение")], id: \.0) { item in
-                                    Button(item.1) { settingsSection = item.0 }
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundColor(settingsSection == item.0 ? .white : Theme.textSecondary)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 10)
-                                        .background(settingsSection == item.0 ? Theme.accent : Theme.card, in: Capsule())
-                                }
-                            }
-                        }
-
-                        if settingsSection == "app" {
-                        Picker(L("Тема"), selection: $appTheme) {
-                            Text(L("Тёмная")).tag("dark")
-                            Text(L("Светлая")).tag("light")
-                        }
-                        .pickerStyle(.segmented)
-                        Picker(L("Язык"), selection: $appLanguage) {
-                            Text(L("Русский")).tag("ru")
-                            Text(L("Английский")).tag("en")
-                        }
-                        .pickerStyle(.segmented)
-                        }
-
-                        if settingsSection == "appearance" {
-                        // Avatar & Banner upload row
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Оформление")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.textSecondary)
-
-                            HStack(spacing: 16) {
-                                PhotosPicker(selection: $selectedAvatarItem, matching: .images) {
-                                    HStack {
-                                        Image(systemName: "photo.circle.fill")
-                                        Text("Сменить аватар")
+                                ForEach([
+                                    ("profile_appearance", "Профиль и оформление"),
+                                    ("security", "Безопасность"),
+                                    ("customization", "Кастомизация")
+                                ], id: \.0) { item in
+                                    Button(item.1) {
+                                        settingsSection = item.0
+                                        noticeMessage = ""
+                                        if item.0 == "security" {
+                                            loadBlockedUsers()
+                                        }
                                     }
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(Theme.textPrimary)
+                                    .foregroundColor(settingsSection == item.0 ? .white : Theme.textSecondary)
                                     .padding(.horizontal, 14)
                                     .padding(.vertical, 10)
-                                    .background(Theme.accent)
-                                    .cornerRadius(10)
-                                }
-                                .onChange(of: selectedAvatarItem) { item in
-                                    uploadImage(item: item, isBanner: false)
-                                }
-
-                                PhotosPicker(selection: $selectedBannerItem, matching: .images) {
-                                    HStack {
-                                        Image(systemName: "rectangle.fill.on.rectangle.angled.fill")
-                                        Text("Сменить шапку")
-                                    }
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(Theme.textPrimary)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .background(Color.white.opacity(0.12))
-                                    .cornerRadius(10)
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.2), lineWidth: 1))
-                                }
-                                .onChange(of: selectedBannerItem) { item in
-                                    uploadImage(item: item, isBanner: true)
+                                    .background(settingsSection == item.0 ? Theme.accent : Theme.card, in: Capsule())
                                 }
                             }
                         }
+
+                        if settingsSection == "profile_appearance" {
+                            profileAndAppearanceSection
+                        } else if settingsSection == "security" {
+                            securitySection
+                        } else if settingsSection == "customization" {
+                            customizationSection
                         }
 
-                        if settingsSection == "profile" {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Отображаемое имя")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.textSecondary)
-                            CustomTextField(placeholder: "Ваше имя", text: $displayName)
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("О себе (био)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.textSecondary)
-                            CustomTextField(placeholder: "Напишите что-нибудь о себе", text: $bio)
-                        }
-
-                        // Liquid Glass Status Picker
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Сетевой статус")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Theme.textSecondary)
-
-                            HStack(spacing: 8) {
-                                StatusOptionButton(title: "В сети", iconColor: Theme.green, isSelected: selectedStatus == "online") {
-                                    selectedStatus = "online"
-                                }
-                                StatusOptionButton(title: "Неактивен", iconColor: Color.orange, isSelected: selectedStatus == "idle") {
-                                    selectedStatus = "idle"
-                                }
-                                StatusOptionButton(title: "Не беспокоить", iconColor: Theme.red, isSelected: selectedStatus == "dnd") {
-                                    selectedStatus = "dnd"
-                                }
-                                StatusOptionButton(title: "Невидимый", iconColor: Theme.textSecondary, isSelected: selectedStatus == "offline") {
-                                    selectedStatus = "offline"
-                                }
-                            }
-                        }
-                        }
-
-                        if settingsSection == "security" {
-                        Divider().background(Theme.card).padding(.vertical, 8)
-
-                        Text("Смена пароля (необязательно)")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(Theme.textPrimary)
-
-                        CustomSecureField(placeholder: "Текущий пароль", text: $currentPassword)
-                        CustomSecureField(placeholder: "Новый пароль (мин. 12 симв.)", text: $newPassword)
-                        }
-
-                        if settingsSection == "profile" || settingsSection == "security" {
-                        Button(action: saveSettings) {
-                            HStack {
-                                Spacer()
-                                if isSaving {
-                                    ProgressView().tint(.white)
-                                } else {
-                                    Text("Сохранить изменения")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
-                                Spacer()
-                            }
-                            .frame(height: 48)
-                            .contentShape(Rectangle())
-                        }
-                        .background(Theme.accent)
-                        .cornerRadius(12)
-                        .buttonStyle(.plain)
-                        .disabled(isSaving)
-                        .padding(.top, 10)
-                        }
                         if !noticeMessage.isEmpty {
-                            Text(noticeMessage).font(.footnote).foregroundColor(Theme.textSecondary)
+                            Text(noticeMessage)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.accent)
+                                .padding(.top, 4)
                         }
                     }
                     .padding(24)
                 }
+            }
+        }
+    }
+
+    // MARK: - 1. Профиль и оформление
+    private var profileAndAppearanceSection: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("ОФОРМЛЕНИЕ")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Theme.textSecondary)
+
+            // Avatar & Banner Buttons
+            HStack(spacing: 12) {
+                PhotosPicker(selection: $selectedAvatarItem, matching: .images) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.circle.fill")
+                        Text("Сменить аватар")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Theme.accent)
+                    .cornerRadius(12)
+                }
+                .onChange(of: selectedAvatarItem) { item in
+                    uploadImage(item: item, isBanner: false)
+                }
+
+                PhotosPicker(selection: $selectedBannerItem, matching: .images) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "rectangle.fill.on.rectangle.angled.fill")
+                        Text("Сменить шапку")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.white.opacity(0.12))
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.2), lineWidth: 1))
+                }
+                .onChange(of: selectedBannerItem) { item in
+                    uploadImage(item: item, isBanner: true)
+                }
+            }
+
+            // Chat Wallpaper (Обои в чатах)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ОБОИ В ЧАТАХ")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Theme.textSecondary)
+
+                if !chatWallpaper.isEmpty {
+                    HStack(spacing: 12) {
+                        if chatWallpaper.hasPrefix("data:"),
+                           let data = Data(base64Encoded: chatWallpaper.components(separatedBy: ",").last ?? ""),
+                           let uiImg = UIImage(data: data) {
+                            Image(uiImage: uiImg)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 60, height: 48)
+                                .cornerRadius(8)
+                                .clipped()
+                        } else if chatWallpaper.hasPrefix("http") {
+                            AsyncImage(url: ApiService.resolveMediaURL(chatWallpaper)) { phase in
+                                if let img = phase.image {
+                                    img.resizable().scaledToFill().frame(width: 60, height: 48).cornerRadius(8).clipped()
+                                }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Свои обои активны")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(Theme.textPrimary)
+                            Text("Отображаются во всех чатах")
+                                .font(.system(size: 11))
+                                .foregroundColor(Theme.textSecondary)
+                        }
+
+                        Spacer()
+
+                        Button(action: resetWallpaper) {
+                            Text("Сбросить")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Theme.red)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.08))
+                                .cornerRadius(8)
+                        }
+                    }
+                    .padding(10)
+                    .background(Theme.glassCard)
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
+                }
+
+                PhotosPicker(selection: $selectedWallpaperItem, matching: .images) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                        Text(chatWallpaper.isEmpty ? "Выбрать обои для чатов" : "Изменить обои для чатов")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.08))
+                    .cornerRadius(10)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                }
+                .onChange(of: selectedWallpaperItem) { item in
+                    uploadWallpaper(item: item)
+                }
+            }
+
+            Divider().background(Theme.card).padding(.vertical, 4)
+
+            // Profile fields
+            Text("ДАННЫЕ ПРОФИЛЯ")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Theme.textSecondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Отображаемое имя")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.textSecondary)
+                CustomTextField(placeholder: "Ваше имя", text: $displayName)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("О себе (био)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.textSecondary)
+                CustomTextField(placeholder: "Напишите что-нибудь о себе", text: $bio)
+            }
+
+            Button(action: saveProfile) {
+                HStack {
+                    Spacer()
+                    if isSaving {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Сохранить профиль")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    Spacer()
+                }
+                .frame(height: 48)
+                .contentShape(Rectangle())
+            }
+            .background(Theme.accent)
+            .cornerRadius(12)
+            .buttonStyle(.plain)
+            .disabled(isSaving)
+            .padding(.top, 6)
+        }
+    }
+
+    // MARK: - 2. Безопасность
+    private var securitySection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Privacy settings
+            Text("ПРИВАТНОСТЬ")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Theme.textSecondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Кто может писать мне")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.textSecondary)
+
+                Picker("Кто может писать", selection: $allowMessages) {
+                    Text("Все").tag("everyone")
+                    Text("Друзья").tag("contacts")
+                    Text("Никто").tag("nobody")
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Кто может звонить мне")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.textSecondary)
+
+                Picker("Кто может звонить", selection: $allowCalls) {
+                    Text("Все").tag("everyone")
+                    Text("Друзья").tag("contacts")
+                    Text("Никто").tag("nobody")
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Кто может видеть моё описание (био)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.textSecondary)
+
+                Picker("Кто видит описание", selection: $showBio) {
+                    Text("Все").tag("everyone")
+                    Text("Друзья").tag("contacts")
+                    Text("Никто").tag("nobody")
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Button(action: savePrivacy) {
+                HStack {
+                    Spacer()
+                    if isSaving {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Сохранить приватность")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    Spacer()
+                }
+                .frame(height: 44)
+                .contentShape(Rectangle())
+            }
+            .background(Theme.accent)
+            .cornerRadius(12)
+            .buttonStyle(.plain)
+            .disabled(isSaving)
+
+            Divider().background(Theme.card).padding(.vertical, 4)
+
+            // Password Change
+            Text("СМЕНА ПАРОЛЯ")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Theme.textSecondary)
+
+            CustomSecureField(placeholder: "Текущий пароль", text: $currentPassword)
+            CustomSecureField(placeholder: "Новый пароль (мин. 12 симв.)", text: $newPassword)
+
+            Button(action: changePassword) {
+                HStack {
+                    Spacer()
+                    Text("Обновить пароль")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                    Spacer()
+                }
+                .frame(height: 44)
+                .contentShape(Rectangle())
+            }
+            .background(currentPassword.isEmpty || newPassword.count < 12 ? Theme.card : Theme.accent)
+            .cornerRadius(12)
+            .buttonStyle(.plain)
+            .disabled(currentPassword.isEmpty || newPassword.count < 12 || isSaving)
+
+            Divider().background(Theme.card).padding(.vertical, 4)
+
+            // Blocked Users
+            Text("ЧЁРНЫЙ СПИСОК")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Theme.textSecondary)
+
+            if isLoadingBlocks {
+                ProgressView().tint(.white).padding(.vertical, 8)
+            } else if blockedUsers.isEmpty {
+                Text("В чёрном списке никого нет")
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.vertical, 4)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(blockedUsers, id: \.description) { b in
+                        let bid = b["id"] as? String ?? ""
+                        let bname = b["displayName"] as? String ?? (b["username"] as? String ?? "Пользователь")
+                        let bavatar = b["avatarUrl"] as? String
+
+                        HStack(spacing: 12) {
+                            AvatarBadgeView(avatarUrl: bavatar, name: bname, size: 36)
+                            Text(bname)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(Theme.textPrimary)
+                            Spacer()
+                            Button(action: { unblockUser(id: bid) }) {
+                                Text("Разблокировать")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(Theme.accent)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.white.opacity(0.08))
+                                    .cornerRadius(8)
+                            }
+                        }
+                        .padding(10)
+                        .background(Theme.glassCard)
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.glassBorder, lineWidth: 1))
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 3. Кастомизация
+    private var customizationSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Status Picker
+            VStack(alignment: .leading, spacing: 8) {
+                Text("СЕТЕВОЙ СТАТУС")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Theme.textSecondary)
+
+                HStack(spacing: 8) {
+                    StatusOptionButton(title: "В сети", iconColor: Theme.green, isSelected: selectedStatus == "online") {
+                        updateStatus("online")
+                    }
+                    StatusOptionButton(title: "Неактивен", iconColor: Color.orange, isSelected: selectedStatus == "idle") {
+                        updateStatus("idle")
+                    }
+                    StatusOptionButton(title: "Не беспокоить", iconColor: Theme.red, isSelected: selectedStatus == "dnd") {
+                        updateStatus("dnd")
+                    }
+                    StatusOptionButton(title: "Невидимый", iconColor: Theme.textSecondary, isSelected: selectedStatus == "offline") {
+                        updateStatus("offline")
+                    }
+                }
+            }
+
+            Divider().background(Theme.card).padding(.vertical, 4)
+
+            // App Theme
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ТЕМА ОФОРМЛЕНИЯ")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Theme.textSecondary)
+
+                Picker(L("Тема"), selection: $appTheme) {
+                    Text(L("Тёмная")).tag("dark")
+                    Text(L("Светлая")).tag("light")
+                }
+                .pickerStyle(.segmented)
+            }
+
+            // App Language
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ЯЗЫК ИНТЕРФЕЙСА")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Theme.textSecondary)
+
+                Picker(L("Язык"), selection: $appLanguage) {
+                    Text(L("Русский")).tag("ru")
+                    Text(L("Английский")).tag("en")
+                }
+                .pickerStyle(.segmented)
             }
         }
     }
@@ -1697,7 +2084,6 @@ struct ProfileTabView: View {
         Task {
             if let data = try? await item.loadTransferable(type: Data.self),
                let uiImg = UIImage(data: data) {
-                // Resize image to keep payload within server constraints
                 let maxDimension: CGFloat = isBanner ? 500 : 250
                 let resized = resizeImage(image: uiImg, maxDimension: maxDimension)
                 if let jpegData = resized.jpegData(compressionQuality: 0.6) {
@@ -1713,12 +2099,59 @@ struct ProfileTabView: View {
                                 self.currentAvatar = base64
                             }
                             self.noticeMessage = isBanner ? "Шапка успешно обновлена!" : "Аватар успешно обновлен!"
+                            self.onUpdated()
                         }
                     } catch {
                         await MainActor.run {
                             self.noticeMessage = "Ошибка загрузки: \(error.localizedDescription)"
                         }
                     }
+                }
+            }
+        }
+    }
+
+    private func uploadWallpaper(item: PhotosPickerItem?) {
+        guard let item = item else { return }
+        Task {
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let uiImg = UIImage(data: data) {
+                let resized = resizeImage(image: uiImg, maxDimension: 1200)
+                if let jpegData = resized.jpegData(compressionQuality: 0.7) {
+                    let base64 = "data:image/jpeg;base64," + jpegData.base64EncodedString()
+                    do {
+                        _ = try await ApiService.shared.put(path: "/api/profile/wallpaper", body: [
+                            "chatWallpaper": base64
+                        ])
+                        await MainActor.run {
+                            self.chatWallpaper = base64
+                            self.noticeMessage = "Обои для чатов успешно установлены!"
+                            self.onUpdated()
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.noticeMessage = "Ошибка установки обоев: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func resetWallpaper() {
+        Task {
+            do {
+                _ = try await ApiService.shared.put(path: "/api/profile/wallpaper", body: [
+                    "chatWallpaper": NSNull()
+                ])
+                await MainActor.run {
+                    self.chatWallpaper = ""
+                    self.noticeMessage = "Обои чатов сброшены"
+                    self.onUpdated()
+                }
+            } catch {
+                await MainActor.run {
+                    self.noticeMessage = error.localizedDescription
                 }
             }
         }
@@ -1735,7 +2168,7 @@ struct ProfileTabView: View {
         }
     }
 
-    private func saveSettings() {
+    private func saveProfile() {
         isSaving = true
         noticeMessage = ""
 
@@ -1750,24 +2183,114 @@ struct ProfileTabView: View {
                 ]
                 _ = try await ApiService.shared.put(path: "/api/profile", body: body)
 
-                if !currentPassword.isEmpty && !newPassword.isEmpty {
-                    _ = try await ApiService.shared.put(path: "/api/profile/password", body: [
-                        "currentPassword": currentPassword,
-                        "newPassword": newPassword
-                    ])
-                }
-
                 await MainActor.run {
                     self.isSaving = false
-                    self.showSettingsModal = false
-                    self.noticeMessage = "Настройки успешно сохранены!"
-                    self.currentPassword = ""
-                    self.newPassword = ""
+                    self.noticeMessage = "Профиль успешно сохранен!"
                     self.onUpdated()
                 }
             } catch {
                 await MainActor.run {
                     self.isSaving = false
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func savePrivacy() {
+        isSaving = true
+        noticeMessage = ""
+
+        Task {
+            do {
+                _ = try await ApiService.shared.put(path: "/api/profile/privacy", body: [
+                    "allowMessages": allowMessages,
+                    "allowCalls": allowCalls,
+                    "showBio": showBio
+                ])
+                await MainActor.run {
+                    self.isSaving = false
+                    self.noticeMessage = "Настройки приватности сохранены!"
+                    self.onUpdated()
+                }
+            } catch {
+                await MainActor.run {
+                    self.isSaving = false
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func changePassword() {
+        guard !currentPassword.isEmpty, newPassword.count >= 12 else { return }
+        isSaving = true
+        noticeMessage = ""
+
+        Task {
+            do {
+                _ = try await ApiService.shared.put(path: "/api/profile/password", body: [
+                    "currentPassword": currentPassword,
+                    "newPassword": newPassword
+                ])
+                await MainActor.run {
+                    self.isSaving = false
+                    self.currentPassword = ""
+                    self.newPassword = ""
+                    self.noticeMessage = "Пароль успешно обновлен!"
+                }
+            } catch {
+                await MainActor.run {
+                    self.isSaving = false
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func updateStatus(_ newStatus: String) {
+        selectedStatus = newStatus
+        Task {
+            let uname = user["username"] as? String ?? ""
+            _ = try? await ApiService.shared.put(path: "/api/profile", body: [
+                "username": uname,
+                "displayName": displayName.isEmpty ? (user["displayName"] as? String ?? uname) : displayName,
+                "bio": bio,
+                "status": newStatus
+            ])
+            await MainActor.run {
+                self.onUpdated()
+            }
+        }
+    }
+
+    private func loadBlockedUsers() {
+        isLoadingBlocks = true
+        Task {
+            do {
+                let blocks = try await ApiService.shared.getArray(path: "/api/blocks")
+                await MainActor.run {
+                    self.blockedUsers = blocks
+                    self.isLoadingBlocks = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoadingBlocks = false
+                }
+            }
+        }
+    }
+
+    private func unblockUser(id: String) {
+        Task {
+            do {
+                _ = try await ApiService.shared.delete(path: "/api/blocks/\(id)")
+                await MainActor.run {
+                    self.blockedUsers.removeAll { ($0["id"] as? String) == id }
+                    self.noticeMessage = "Пользователь разблокирован"
+                }
+            } catch {
+                await MainActor.run {
                     self.noticeMessage = error.localizedDescription
                 }
             }
@@ -1969,36 +2492,61 @@ struct AvatarBadgeView: View {
     let avatarUrl: String?
     let name: String
     var size: CGFloat = 44
+    var presence: String? = nil
+
+    private var statusColor: Color? {
+        guard let p = presence else { return nil }
+        switch p {
+        case "online": return Theme.green
+        case "dnd": return Theme.red
+        case "idle": return Color.orange
+        case "offline": return Color.gray.opacity(0.6)
+        default: return nil
+        }
+    }
 
     var body: some View {
-        Group {
-            if let aUrl = avatarUrl, !aUrl.isEmpty {
-                if aUrl.hasPrefix("data:") {
-                    if let data = Data(base64Encoded: aUrl.components(separatedBy: ",").last ?? ""),
-                       let uiImg = UIImage(data: data) {
-                        Image(uiImage: uiImg)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: size, height: size)
-                            .clipShape(Circle())
-                    } else {
-                        fallbackCircle
-                    }
+        ZStack(alignment: .bottomTrailing) {
+            avatarContent
+
+            if let col = statusColor {
+                Circle()
+                    .fill(col)
+                    .frame(width: max(10, size * 0.26), height: max(10, size * 0.26))
+                    .overlay(Circle().stroke(Color(red: 16/255, green: 20/255, blue: 32/255), lineWidth: 2))
+                    .offset(x: 1, y: 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var avatarContent: some View {
+        if let aUrl = avatarUrl, !aUrl.isEmpty {
+            if aUrl.hasPrefix("data:") {
+                if let data = Data(base64Encoded: aUrl.components(separatedBy: ",").last ?? ""),
+                   let uiImg = UIImage(data: data) {
+                    Image(uiImage: uiImg)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size, height: size)
+                        .clipShape(Circle())
                 } else {
-                    AsyncImage(url: ApiService.resolveMediaURL(aUrl)) { phase in
-                        switch phase {
-                        case .success(let img):
-                            img.resizable().scaledToFill()
-                                .frame(width: size, height: size)
-                                .clipShape(Circle())
-                        default:
-                            fallbackCircle
-                        }
-                    }
+                    fallbackCircle
                 }
             } else {
-                fallbackCircle
+                AsyncImage(url: ApiService.resolveMediaURL(aUrl)) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                            .frame(width: size, height: size)
+                            .clipShape(Circle())
+                    default:
+                        fallbackCircle
+                    }
+                }
             }
+        } else {
+            fallbackCircle
         }
     }
 
