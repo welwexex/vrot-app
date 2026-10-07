@@ -340,9 +340,9 @@ app.get('/api/users/:id/profile',auth,wrap(async(req,res)=>{
   if(!q.rows[0])return res.status(404).json({error:'Профиль не найден'});
   const target=q.rows[0];
   const isSelf=target.id===req.user!.id;
-  const isBlocked=(await pool.query('SELECT 1 FROM user_blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1)',[req.user!.id,target.id])).rowCount > 0;
+  const isBlocked=Boolean((await pool.query('SELECT 1 FROM user_blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1)',[req.user!.id,target.id])).rowCount);
   const privacy=target.privacy_settings||{};
-  const isFriend=(await pool.query("SELECT 1 FROM friendships WHERE ((requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)) AND status='accepted'",[req.user!.id,target.id])).rowCount > 0;
+  const isFriend=Boolean((await pool.query("SELECT 1 FROM friendships WHERE ((requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)) AND status='accepted'",[req.user!.id,target.id])).rowCount);
   let bio=target.bio||'';
   let avatarUrl=target.avatar_url||null;
   let bannerUrl=target.banner_url||null;
@@ -386,7 +386,7 @@ app.get('/api/friends/:id/messages',auth,wrap(async(req,res)=>{
 
 app.post('/api/friends/:id/messages',auth,rateLimit({windowMs:10_000,limit:30}),wrap(async(req,res)=>{
   const friendId=String(req.params.id);
-  const isBlocked = (await pool.query('SELECT 1 FROM user_blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1)', [friendId, req.user!.id])).rowCount > 0;
+  const isBlocked = Boolean((await pool.query('SELECT 1 FROM user_blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1)', [friendId, req.user!.id])).rowCount);
   if (isBlocked) return res.status(403).json({ error: 'Пользователь ограничил входящие сообщения' });
   const recipientUser = (await pool.query('SELECT privacy_settings FROM users WHERE id=$1', [friendId])).rows[0];
   if (recipientUser?.privacy_settings?.allowMessages === 'nobody') return res.status(403).json({ error: 'Пользователь запретил входящие сообщения' });
@@ -701,7 +701,7 @@ io.on('connection',socket=>{
     const callee = (await pool.query('SELECT id, is_bot, privacy_settings FROM users WHERE id=$1', [data?.friendId])).rows[0];
     if(!callee) return ack?.({ok:false,error:'Пользователь не найден'});
     if(callee.is_bot) return ack?.({ok:false,error:'Ботам нельзя звонить'});
-    const isBlocked = (await pool.query('SELECT 1 FROM user_blocks WHERE user_id=$1 AND blocked_id=$2', [data.friendId, uid])).rowCount > 0;
+    const isBlocked = Boolean((await pool.query('SELECT 1 FROM user_blocks WHERE user_id=$1 AND blocked_id=$2', [data.friendId, uid])).rowCount);
     if(isBlocked) return ack?.({ok:false,error:'Пользователь ограничил входящие вызовы'});
     const privacy = callee.privacy_settings || {};
     if(privacy.allowCalls === 'nobody') return ack?.({ok:false,error:'Пользователь запретил входящие звонки'});
