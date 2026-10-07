@@ -1405,7 +1405,7 @@ struct ProfileTabView: View {
                                         .frame(height: 110)
                                 }
                             } else {
-                                AsyncImage(url: URL(string: ApiService.shared.baseURL + bUrl)) { img in
+                                AsyncImage(url: ApiService.resolveMediaURL(bUrl)) { img in
                                     img.resizable().scaledToFill()
                                 } placeholder: {
                                     LinearGradient(colors: [Theme.accent.opacity(0.8), Color.purple.opacity(0.5)], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -1847,7 +1847,7 @@ struct UserProfileCardModal: View {
                                 Color.purple.opacity(0.4).frame(height: 120)
                             }
                         } else {
-                            AsyncImage(url: URL(string: bUrl.hasPrefix("https://") ? bUrl : ApiService.shared.baseURL + bUrl)) { img in
+                            AsyncImage(url: ApiService.resolveMediaURL(bUrl)) { img in
                                 img.resizable().scaledToFill()
                             } placeholder: {
                                 Color.purple.opacity(0.4)
@@ -1985,7 +1985,7 @@ struct AvatarBadgeView: View {
                         fallbackCircle
                     }
                 } else {
-                    AsyncImage(url: URL(string: aUrl.hasPrefix("https://") ? aUrl : ApiService.shared.baseURL + aUrl)) { phase in
+                    AsyncImage(url: ApiService.resolveMediaURL(aUrl)) { phase in
                         switch phase {
                         case .success(let img):
                             img.resizable().scaledToFill()
