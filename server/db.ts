@@ -222,6 +222,72 @@ export async function migrate(){
       {"command": "help", "description": "Справка и документация"}
     ]'::jsonb WHERE username_key = 'botfather' AND (bot_commands IS NULL OR bot_commands = '[]'::jsonb)
   `);
+
+  // Email verification & Security migrations
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified boolean NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token_hash char(64)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_expires_at timestamptz`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_backup_codes text[] DEFAULT '{}'`);
+
+  // Passkey credentials
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS passkey_credentials (
+      id text PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      public_key text NOT NULL,
+      counter bigint NOT NULL DEFAULT 0,
+      device_name varchar(100) NOT NULL DEFAULT 'Устройство',
+      transports text[] DEFAULT '{}',
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS passkey_user_idx ON passkey_credentials(user_id)`);
+
+  // Auth Challenges for WebAuthn & 2FA Temp Tokens
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_challenges (
+      id uuid PRIMARY KEY,
+      challenge text NOT NULL,
+      user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+      challenge_type varchar(32) NOT NULL,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS auth_challenges_exp_idx ON auth_challenges(expires_at)`);
+
+  // Sessions extensions
+  await pool.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen_at timestamptz NOT NULL DEFAULT now()`);
+  await pool.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_address varchar(45)`);
+  await pool.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS device_name varchar(120)`);
+
+  // V AI memory table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS v_ai_memory (
+      user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      compact_summary text NOT NULL DEFAULT '',
+      last_interaction_at timestamptz NOT NULL DEFAULT now(),
+      turns_count int NOT NULL DEFAULT 0
+    )
+  `);
+
+  // Setup V AI Bot profile & commands
+  await pool.query(`
+    UPDATE users SET
+      display_name = 'V AI',
+      bio = 'Персональный ИИ-ассистент VROT 2.0 на базе Gemma 4. Умеет общаться, анализировать фото и безопасно искать в ваших переписках.',
+      verified = true,
+      status = 'bot',
+      bot_commands = '[
+        {"command": "start", "description": "Познакомиться с V AI"},
+        {"command": "search", "description": "Поиск по вашим сообщениям"},
+        {"command": "clear", "description": "Сбросить память диалога"},
+        {"command": "help", "description": "Справка и возможности"}
+      ]'::jsonb
+    WHERE username_key = 'vai_bot' OR id = '571e0139-02bf-498f-acab-87582cfcb7b0'
+  `);
 }
 
 export async function audit(actorId:string|null,eventType:string,subjectId?:string,details:Record<string,unknown>={}){
