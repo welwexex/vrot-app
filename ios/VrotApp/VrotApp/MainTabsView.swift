@@ -2,14 +2,82 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-struct VrotGlassBar: ViewModifier {
+struct LiquidGlassModifier: ViewModifier {
+    var cornerRadius: CGFloat = 24
+    @Environment(\.accessibilityReduceTransparency) var reduceTransparency
+
     func body(content: Content) -> some View {
         content
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+            .background {
+                if reduceTransparency {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(Color(red: 20/255, green: 27/255, blue: 37/255))
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.08),
+                                    Color.white.opacity(0.02)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ))
+                    }
+                }
+            }
             .overlay(
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.white.opacity(0.38), location: 0.0),
+                                .init(color: Color.white.opacity(0.12), location: 0.45),
+                                .init(color: Color.white.opacity(0.04), location: 1.0)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
             )
+            .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 8)
+    }
+}
+
+extension View {
+    func liquidGlass(cornerRadius: CGFloat = 24) -> some View {
+        self.modifier(LiquidGlassModifier(cornerRadius: cornerRadius))
+    }
+}
+
+struct VrotGlassBar: ViewModifier {
+    func body(content: Content) -> some View {
+        content.liquidGlass(cornerRadius: 24)
+    }
+}
+
+struct DockTabButton: View {
+    let icon: String
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? Theme.accent : Theme.textSecondary)
+                Text(title)
+                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? .white : Theme.textSecondary)
+            }
+            .frame(minWidth: 54)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -32,35 +100,56 @@ struct MainTabsView: View {
             } else if let comm = activeCommunity {
                 CommunityDetailView(community: comm, onBack: { activeCommunity = nil; loadData() })
             } else {
-                // The system tab bar receives native Liquid Glass on iOS 26.
-                TabView(selection: $selectedTab) {
-                        FriendsTabView(friends: friends, communities: communities, onRefresh: {
-                            loadData()
-                        }, onSelectFriend: { friend in
-                            activeChatFriend = friend
-                        }, onSelectCommunity: { comm in
-                            activeCommunity = comm
-                        }, onCallFriend: { friend, isVideo in
-                            let id = friend["id"] as? String ?? ""
-                            let name = friend["displayName"] as? String ?? (friend["username"] as? String ?? "Друг")
-                            CallManager.shared.startOutgoingCall(targetId: id, name: name, avatarUrl: friend["avatarUrl"] as? String, isVideo: isVideo)
-                        })
-                        .tabItem { Label(L("Чаты"), systemImage: "message.fill") }
-                        .tag(0)
+                ZStack(alignment: .bottom) {
+                    Group {
+                        if selectedTab == 0 {
+                            FriendsTabView(friends: friends, communities: communities, onRefresh: {
+                                loadData()
+                            }, onSelectFriend: { friend in
+                                activeChatFriend = friend
+                            }, onSelectCommunity: { comm in
+                                activeCommunity = comm
+                            }, onCallFriend: { friend, isVideo in
+                                let id = friend["id"] as? String ?? ""
+                                let name = friend["displayName"] as? String ?? (friend["username"] as? String ?? "Друг")
+                                CallManager.shared.startOutgoingCall(targetId: id, name: name, avatarUrl: friend["avatarUrl"] as? String, isVideo: isVideo)
+                            })
+                        } else if selectedTab == 1 {
+                            CommunitiesTabView(communities: communities, onSelectCommunity: { comm in
+                                activeCommunity = comm
+                            }, onCommunityCreated: {
+                                loadData()
+                            })
+                        } else {
+                            ProfileTabView(user: currentUser, onLogout: logout, onUpdated: loadData)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        CommunitiesTabView(communities: communities, onSelectCommunity: { comm in
-                            activeCommunity = comm
-                        }, onCommunityCreated: {
-                            loadData()
-                        })
-                        .tabItem { Label(L("Сообщества"), systemImage: "person.3.fill") }
-                        .tag(1)
-
-                        ProfileTabView(user: currentUser, onLogout: logout, onUpdated: loadData)
-                            .tabItem { Label(L("Профиль"), systemImage: "person.crop.circle.fill") }
-                            .tag(2)
+                    // iOS 26 Liquid Glass Floating Dock Navigation
+                    HStack(spacing: 28) {
+                        DockTabButton(icon: "message.fill", title: L("Чаты"), isSelected: selectedTab == 0) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                selectedTab = 0
+                            }
+                        }
+                        DockTabButton(icon: "person.3.fill", title: L("Сообщества"), isSelected: selectedTab == 1) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                selectedTab = 1
+                            }
+                        }
+                        DockTabButton(icon: "person.crop.circle.fill", title: L("Профиль"), isSelected: selectedTab == 2) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                selectedTab = 2
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 14)
+                    .liquidGlass(cornerRadius: 32)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 12)
                 }
-                .tint(Theme.accent)
             }
         }
         .onAppear(perform: loadData)
@@ -1500,6 +1589,20 @@ struct ProfileTabView: View {
     @State private var blockedUsers: [[String: Any]] = []
     @State private var isLoadingBlocks = false
 
+    // Security tab states
+    @State private var isEmailVerified = false
+    @State private var userEmail = ""
+    @State private var isTotpEnabled = false
+    @State private var totpSetupData: [String: Any]? = nil
+    @State private var totpInputCode = ""
+    @State private var backupCodes: [String] = []
+    @State private var showTotpDisableModal = false
+    @State private var totpDisableCode = ""
+    @State private var activeSessions: [[String: Any]] = []
+    @State private var userPasskeys: [[String: Any]] = []
+    @State private var isLoadingSecurity = false
+    @State private var isSendingEmail = false
+
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -1518,7 +1621,11 @@ struct ProfileTabView: View {
                     ZStack(alignment: .bottomLeading) {
                         if let bUrl = banner, !bUrl.isEmpty {
                             if bUrl.hasPrefix("data:") {
-                                if let data = Data(base64Encoded: bUrl.components(separatedBy: ",").last ?? ""),
+                                let cleanBase64 = (bUrl.components(separatedBy: ",").last ?? "")
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .replacingOccurrences(of: "\n", with: "")
+                                    .replacingOccurrences(of: "\r", with: "")
+                                if let data = Data(base64Encoded: cleanBase64, options: [.ignoreUnknownCharacters]),
                                    let uiImg = UIImage(data: data) {
                                     Image(uiImage: uiImg)
                                         .resizable()
@@ -1624,6 +1731,7 @@ struct ProfileTabView: View {
                             chatWallpaper = sWall
                         }
                         showSettingsModal = true
+                        loadSecurityData()
                         loadBlockedUsers()
                     }) {
                         HStack {
@@ -1646,7 +1754,7 @@ struct ProfileTabView: View {
                 }
                 .padding(.horizontal, 16)
 
-                Spacer(minLength: 20)
+                Spacer(minLength: 80)
 
                 // Logout Button
                 Button(action: onLogout) {
@@ -1660,7 +1768,7 @@ struct ProfileTabView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.red.opacity(0.3), lineWidth: 1))
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 30)
+                .padding(.bottom, 90)
             }
         }
         .sheet(isPresented: $showSettingsModal) {
@@ -1694,6 +1802,7 @@ struct ProfileTabView: View {
                                         settingsSection = item.0
                                         noticeMessage = ""
                                         if item.0 == "security" {
+                                            loadSecurityData()
                                             loadBlockedUsers()
                                         }
                                     }
@@ -1887,6 +1996,322 @@ struct ProfileTabView: View {
     // MARK: - 2. Безопасность
     private var securitySection: some View {
         VStack(alignment: .leading, spacing: 20) {
+            // Email Status Card
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Электронная почта", systemImage: "envelope.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    Text(isEmailVerified ? "✅ Подтверждён" : "⚠️ Не подтверждён")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(isEmailVerified ? Theme.green : Theme.red)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background((isEmailVerified ? Theme.green : Theme.red).opacity(0.15))
+                        .cornerRadius(6)
+                }
+
+                if !userEmail.isEmpty {
+                    Text(userEmail)
+                        .font(.system(size: 13))
+                        .foregroundColor(Theme.textSecondary)
+                }
+
+                if !isEmailVerified && !userEmail.isEmpty {
+                    Button(action: resendVerificationEmail) {
+                        HStack {
+                            if isSendingEmail {
+                                ProgressView().tint(.white).scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "paperplane.fill")
+                                Text("Отправить письмо с подтверждением")
+                            }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.textPrimary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Theme.accent)
+                        .cornerRadius(8)
+                    }
+                    .disabled(isSendingEmail)
+                }
+            }
+            .padding(14)
+            .background(Theme.glassCard)
+            .cornerRadius(14)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.glassBorder, lineWidth: 1))
+
+            // 2FA TOTP Card
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Двухфакторная защита (TOTP)", systemImage: "lock.shield.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    Text(isTotpEnabled ? "✅ Включена" : "⚪ Выключена")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(isTotpEnabled ? Theme.green : Theme.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background((isTotpEnabled ? Theme.green : Color.white).opacity(0.12))
+                        .cornerRadius(6)
+                }
+
+                Text("Защита аккаунта с помощью Apple Passwords, Google Authenticator или Aegis.")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.textSecondary)
+
+                if !isTotpEnabled && totpSetupData == nil {
+                    Button(action: startTotpSetup) {
+                        HStack {
+                            Image(systemName: "plus.shield.fill")
+                            Text("Включить 2FA")
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Theme.accent)
+                        .cornerRadius(8)
+                    }
+                }
+
+                if let setup = totpSetupData {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Секретный ключ для аутентификатора:")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(Theme.textSecondary)
+
+                        let secret = setup["secret"] as? String ?? ""
+                        HStack {
+                            Text(secret)
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .foregroundColor(Theme.textPrimary)
+                            Spacer()
+                            Button(action: { UIPasteboard.general.string = secret; noticeMessage = "Ключ скопирован" }) {
+                                Image(systemName: "doc.on.doc.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Theme.accent)
+                            }
+                        }
+                        .padding(10)
+                        .background(Color.white.opacity(0.08))
+                        .cornerRadius(8)
+
+                        CustomTextField(placeholder: "6 цифр из приложения", text: $totpInputCode)
+                            .keyboardType(.numberPad)
+
+                        HStack(spacing: 10) {
+                            Button("Подтвердить") {
+                                verifyTotpCode()
+                            }
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Theme.green)
+                            .cornerRadius(8)
+                            .disabled(totpInputCode.count < 6)
+
+                            Button("Отмена") {
+                                totpSetupData = nil
+                                totpInputCode = ""
+                            }
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.textSecondary)
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(10)
+                }
+
+                if !backupCodes.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("⚠️ Сохраните ваши резервные коды:")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(Theme.green)
+                        ForEach(backupCodes, id: \.self) { code in
+                            Text(code)
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .foregroundColor(Theme.textPrimary)
+                        }
+                    }
+                    .padding(10)
+                    .background(Theme.green.opacity(0.1))
+                    .cornerRadius(8)
+                }
+
+                if isTotpEnabled {
+                    if showTotpDisableModal {
+                        VStack(alignment: .leading, spacing: 8) {
+                            CustomTextField(placeholder: "Код 2FA или пароль", text: $totpDisableCode)
+                            HStack {
+                                Button("Отключить 2FA") {
+                                    disableTotp()
+                                }
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Theme.red)
+                                .cornerRadius(8)
+
+                                Button("Отмена") {
+                                    showTotpDisableModal = false
+                                }
+                                .font(.system(size: 13))
+                                .foregroundColor(Theme.textSecondary)
+                            }
+                        }
+                    } else {
+                        Button("Отключить 2FA") {
+                            showTotpDisableModal = true
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.red)
+                    }
+                }
+            }
+            .padding(14)
+            .background(Theme.glassCard)
+            .cornerRadius(14)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.glassBorder, lineWidth: 1))
+
+            // Active Sessions Card
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Активные сеансы", systemImage: "laptopcomputer.and.iphone")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    if activeSessions.count > 1 {
+                        Button("Завершить другие") {
+                            revokeOtherSessions()
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Theme.red)
+                    }
+                }
+
+                ForEach(activeSessions, id: \.description) { s in
+                    let dev = s["deviceName"] as? String ?? "Устройство"
+                    let ip = s["ipAddress"] as? String ?? "—"
+                    let isCur = s["isCurrent"] as? Bool ?? false
+                    let sid = s["id"] as? String ?? ""
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Text(isCur ? "🟢" : "⚪")
+                                Text(dev)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(Theme.textPrimary)
+                                if isCur {
+                                    Text("Текущее")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(Theme.green)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Theme.green.opacity(0.15))
+                                        .cornerRadius(4)
+                                }
+                            }
+                            Text("IP: \(ip)")
+                                .font(.system(size: 11))
+                                .foregroundColor(Theme.textSecondary)
+                        }
+                        Spacer()
+                        if !isCur {
+                            Button(action: { revokeSession(id: sid) }) {
+                                Text("Завершить")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Theme.red)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.white.opacity(0.08))
+                                    .cornerRadius(6)
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(8)
+                }
+            }
+            .padding(14)
+            .background(Theme.glassCard)
+            .cornerRadius(14)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.glassBorder, lineWidth: 1))
+
+            // Passkeys Card
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Ключи доступа (Passkeys)", systemImage: "key.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(Theme.textPrimary)
+
+                if userPasskeys.isEmpty {
+                    Text("Нет привязанных ключей доступа.")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.textSecondary)
+                } else {
+                    ForEach(userPasskeys, id: \.description) { pk in
+                        let dname = pk["deviceName"] as? String ?? "Passkey"
+                        let pkid = pk["id"] as? String ?? ""
+                        HStack {
+                            Text("🛡️ \(dname)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.textPrimary)
+                            Spacer()
+                            Button(action: { deletePasskey(id: pkid) }) {
+                                Image(systemName: "trash.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Theme.red)
+                            }
+                        }
+                        .padding(8)
+                        .background(Color.white.opacity(0.04))
+                        .cornerRadius(8)
+                    }
+                }
+            }
+            .padding(14)
+            .background(Theme.glassCard)
+            .cornerRadius(14)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.glassBorder, lineWidth: 1))
+
+            // Password Change
+            VStack(alignment: .leading, spacing: 10) {
+                Text("СМЕНА ПАРОЛЯ")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Theme.textSecondary)
+
+                CustomSecureField(placeholder: "Текущий пароль", text: $currentPassword)
+                CustomSecureField(placeholder: "Новый пароль (мин. 12 симв.)", text: $newPassword)
+
+                Button(action: changePassword) {
+                    HStack {
+                        Spacer()
+                        Text("Обновить пароль")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                        Spacer()
+                    }
+                    .frame(height: 44)
+                    .contentShape(Rectangle())
+                }
+                .background(currentPassword.isEmpty || newPassword.count < 12 ? Theme.card : Theme.accent)
+                .cornerRadius(12)
+                .buttonStyle(.plain)
+                .disabled(currentPassword.isEmpty || newPassword.count < 12 || isSaving)
+            }
+            .padding(14)
+            .background(Theme.glassCard)
+            .cornerRadius(14)
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.glassBorder, lineWidth: 1))
+
             // Privacy settings
             Text("ПРИВАТНОСТЬ")
                 .font(.system(size: 12, weight: .bold))
@@ -1950,32 +2375,6 @@ struct ProfileTabView: View {
             .cornerRadius(12)
             .buttonStyle(.plain)
             .disabled(isSaving)
-
-            Divider().background(Theme.card).padding(.vertical, 4)
-
-            // Password Change
-            Text("СМЕНА ПАРОЛЯ")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(Theme.textSecondary)
-
-            CustomSecureField(placeholder: "Текущий пароль", text: $currentPassword)
-            CustomSecureField(placeholder: "Новый пароль (мин. 12 симв.)", text: $newPassword)
-
-            Button(action: changePassword) {
-                HStack {
-                    Spacer()
-                    Text("Обновить пароль")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                    Spacer()
-                }
-                .frame(height: 44)
-                .contentShape(Rectangle())
-            }
-            .background(currentPassword.isEmpty || newPassword.count < 12 ? Theme.card : Theme.accent)
-            .cornerRadius(12)
-            .buttonStyle(.plain)
-            .disabled(currentPassword.isEmpty || newPassword.count < 12 || isSaving)
 
             Divider().background(Theme.card).padding(.vertical, 4)
 
@@ -2296,6 +2695,158 @@ struct ProfileTabView: View {
             }
         }
     }
+
+    private func loadSecurityData() {
+        isLoadingSecurity = true
+        isEmailVerified = user["emailVerified"] as? Bool ?? false
+        userEmail = user["email"] as? String ?? ""
+        isTotpEnabled = user["totpEnabled"] as? Bool ?? false
+
+        Task {
+            do {
+                let sess = try await ApiService.shared.getArray(path: "/api/auth/sessions")
+                let pks = try await ApiService.shared.getArray(path: "/api/auth/passkeys")
+                await MainActor.run {
+                    self.activeSessions = sess
+                    self.userPasskeys = pks
+                    self.isLoadingSecurity = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoadingSecurity = false
+                }
+            }
+        }
+    }
+
+    private func resendVerificationEmail() {
+        isSendingEmail = true
+        Task {
+            do {
+                let res = try await ApiService.shared.post(path: "/api/auth/verify-email/resend", body: [:])
+                await MainActor.run {
+                    self.isSendingEmail = false
+                    self.noticeMessage = (res["message"] as? String) ?? "Письмо с подтверждением отправлено!"
+                }
+            } catch {
+                await MainActor.run {
+                    self.isSendingEmail = false
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func startTotpSetup() {
+        Task {
+            do {
+                let setup = try await ApiService.shared.post(path: "/api/auth/2fa/setup", body: [:])
+                await MainActor.run {
+                    self.totpSetupData = setup
+                    self.totpInputCode = ""
+                }
+            } catch {
+                await MainActor.run {
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func verifyTotpCode() {
+        guard let setup = totpSetupData, totpInputCode.count >= 6 else { return }
+        let secret = setup["secret"] as? String ?? ""
+        Task {
+            do {
+                let res = try await ApiService.shared.post(path: "/api/auth/2fa/verify", body: [
+                    "code": totpInputCode,
+                    "secret": secret
+                ])
+                await MainActor.run {
+                    self.isTotpEnabled = true
+                    self.backupCodes = (res["backupCodes"] as? [String]) ?? []
+                    self.totpSetupData = nil
+                    self.noticeMessage = "2FA успешно активирована! Сохраните резервные коды."
+                    self.onUpdated()
+                }
+            } catch {
+                await MainActor.run {
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func disableTotp() {
+        guard !totpDisableCode.isEmpty else { return }
+        Task {
+            do {
+                _ = try await ApiService.shared.post(path: "/api/auth/2fa/disable", body: [
+                    "code": totpDisableCode
+                ])
+                await MainActor.run {
+                    self.isTotpEnabled = false
+                    self.showTotpDisableModal = false
+                    self.totpDisableCode = ""
+                    self.backupCodes = []
+                    self.noticeMessage = "2FA отключена"
+                    self.onUpdated()
+                }
+            } catch {
+                await MainActor.run {
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func revokeSession(id: String) {
+        Task {
+            do {
+                _ = try await ApiService.shared.delete(path: "/api/auth/sessions/\(id)")
+                await MainActor.run {
+                    self.loadSecurityData()
+                    self.noticeMessage = "Сеанс завершен"
+                }
+            } catch {
+                await MainActor.run {
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func revokeOtherSessions() {
+        Task {
+            do {
+                _ = try await ApiService.shared.delete(path: "/api/auth/sessions-other")
+                await MainActor.run {
+                    self.loadSecurityData()
+                    self.noticeMessage = "Все остальные сеансы завершены"
+                }
+            } catch {
+                await MainActor.run {
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func deletePasskey(id: String) {
+        Task {
+            do {
+                _ = try await ApiService.shared.delete(path: "/api/auth/passkeys/\(id)")
+                await MainActor.run {
+                    self.loadSecurityData()
+                    self.noticeMessage = "Passkey удален"
+                }
+            } catch {
+                await MainActor.run {
+                    self.noticeMessage = error.localizedDescription
+                }
+            }
+        }
+    }
 }
 
 struct StatusOptionButton: View {
@@ -2359,7 +2910,11 @@ struct UserProfileCardModal: View {
                 ZStack(alignment: .bottomLeading) {
                     if let bUrl = bannerUrl, !bUrl.isEmpty {
                         if bUrl.hasPrefix("data:") {
-                            if let data = Data(base64Encoded: bUrl.components(separatedBy: ",").last ?? ""),
+                            let cleanBase64 = (bUrl.components(separatedBy: ",").last ?? "")
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                                .replacingOccurrences(of: "\n", with: "")
+                                .replacingOccurrences(of: "\r", with: "")
+                            if let data = Data(base64Encoded: cleanBase64, options: [.ignoreUnknownCharacters]),
                                let uiImg = UIImage(data: data) {
                                 Image(uiImage: uiImg)
                                     .resizable()
@@ -2523,7 +3078,11 @@ struct AvatarBadgeView: View {
     private var avatarContent: some View {
         if let aUrl = avatarUrl, !aUrl.isEmpty {
             if aUrl.hasPrefix("data:") {
-                if let data = Data(base64Encoded: aUrl.components(separatedBy: ",").last ?? ""),
+                let cleanBase64 = (aUrl.components(separatedBy: ",").last ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: "\n", with: "")
+                    .replacingOccurrences(of: "\r", with: "")
+                if let data = Data(base64Encoded: cleanBase64, options: [.ignoreUnknownCharacters]),
                    let uiImg = UIImage(data: data) {
                     Image(uiImage: uiImg)
                         .resizable()
