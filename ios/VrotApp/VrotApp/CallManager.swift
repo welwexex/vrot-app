@@ -36,27 +36,38 @@ final class CallManager: NSObject, ObservableObject {
 
         self.provider = CXProvider(configuration: config)
         super.init()
-        RTCAudioSession.sharedInstance().useManualAudio = true
-        RTCAudioSession.sharedInstance().isAudioEnabled = false
+        let rtcAudio = RTCAudioSession.sharedInstance()
+        rtcAudio.useManualAudio = false
+        rtcAudio.isAudioEnabled = true
         self.provider.setDelegate(self, queue: nil)
 
         setupNotifications()
     }
 
     private func setupNotifications() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound, .criticalAlert]) { granted, error in
             print("Notification permission granted: \(granted)")
         }
     }
 
     // Trigger local push notification
-    func sendLocalNotification(title: String, body: String) {
+    func sendLocalNotification(title: String, body: String, isCall: Bool = false) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        if isCall {
+            content.sound = UNNotificationSound.defaultRingtone
+            if #available(iOS 15.0, *) {
+                content.interruptionLevel = .timeSensitive
+            }
+        } else {
+            content.sound = .default
+            if #available(iOS 15.0, *) {
+                content.interruptionLevel = .timeSensitive
+            }
+        }
 
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.5, repeats: false)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request)
     }
@@ -114,7 +125,9 @@ final class CallManager: NSObject, ObservableObject {
             }
         }
 
-        // Notify socket
+        // Notify socket and media
+        AVAudioSession.sharedInstance().requestRecordPermission { _ in }
+        configureAudioSession()
         if kind == "friend" { RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo) }
         NativeCallMedia.shared.start(targetId: targetId, kind: kind, video: isVideo)
     }
@@ -144,6 +157,12 @@ final class CallManager: NSObject, ObservableObject {
 
     func endCall() {
         cancelTimeout()
+        if state.incoming && !state.answered && !state.callId.isEmpty {
+            RealtimeService.shared.sendCallResponse(callId: state.callId, accept: false)
+        } else if !state.targetId.isEmpty {
+            RealtimeService.shared.sendCallCancel(friendId: state.targetId)
+        }
+        RealtimeService.shared.sendCallLeave()
         NativeCallMedia.shared.stop()
 
         guard let uuid = currentCallUUID else {
