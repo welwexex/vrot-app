@@ -203,6 +203,15 @@ export async function migrate(){
   }
 
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_commands JSONB DEFAULT '[]'::jsonb`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_settings JSONB DEFAULT '{"allowMessages":"everyone","allowCalls":"everyone","showBio":"everyone","showBanner":"everyone","showAvatar":"everyone"}'::jsonb`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_wallpaper text DEFAULT NULL`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS customization JSONB DEFAULT '{"accentColor":"#5865f2","messageStyle":"bubble"}'::jsonb`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS user_blocks (
+    user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id uuid REFERENCES users(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, blocked_id)
+  )`);
   await pool.query(`
     UPDATE users SET bot_commands = '[
       {"command": "start", "description": "Главное меню BotFather"},
