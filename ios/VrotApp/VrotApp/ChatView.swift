@@ -216,6 +216,7 @@ struct ChatView: View {
         .onDisappear {
             player.stop()
             RealtimeService.shared.onDirectMessage = nil
+            RealtimeService.shared.onDirectMessageReaction = nil
         }
         .onChange(of: selectedMedia) { item in
             guard let item else { return }
@@ -309,8 +310,11 @@ struct ChatView: View {
                         let msg = messages[idx]
                         let author = msg["author"] as? [String: Any]
                         let isMe = (author?["id"] as? String) != (friend["id"] as? String)
-                        ChatMessageItemView(msg: msg, idx: idx, isMe: isMe, player: player)
-                            .id(idx)
+                        let msgId = msg["id"] as? String ?? "\(idx)"
+                        ChatMessageItemView(msg: msg, idx: idx, isMe: isMe, player: player, onReact: { emoji in
+                            toggleReaction(messageId: msgId, emoji: emoji)
+                        })
+                        .id(idx)
                     }
                 }
                 .padding(16)
@@ -540,6 +544,43 @@ struct ChatView: View {
                 self.messages = deduplicatedMessages(self.messages + [newMsg])
             }
         }
+
+        RealtimeService.shared.onDirectMessageReaction = { payload in
+            DispatchQueue.main.async {
+                guard let messageId = payload["messageId"] as? String,
+                      let reactions = payload["reactions"] as? [[String: Any]] else { return }
+                self.updateMessageReactions(messageId: messageId, reactions: reactions)
+            }
+        }
+    }
+
+    private func toggleReaction(messageId: String, emoji: String) {
+        Task {
+            do {
+                let res = try await ApiService.shared.post(
+                    path: "/api/direct-messages/\(messageId)/reactions",
+                    body: ["emoji": emoji]
+                )
+                if let newReactions = res["reactions"] as? [[String: Any]] {
+                    await MainActor.run {
+                        self.updateMessageReactions(messageId: messageId, reactions: newReactions)
+                    }
+                }
+            } catch {
+                print("Failed to toggle reaction: \(error)")
+            }
+        }
+    }
+
+    private func updateMessageReactions(messageId: String, reactions: [[String: Any]]) {
+        for i in 0..<messages.count {
+            if let id = messages[i]["id"] as? String, id == messageId {
+                var updated = messages[i]
+                updated["reactions"] = reactions
+                messages[i] = updated
+                break
+            }
+        }
     }
 
     private func sendMessage() {
@@ -744,6 +785,9 @@ struct ChatMessageItemView: View {
     let idx: Int
     let isMe: Bool
     @ObservedObject var player: AudioPlayerManager
+    let onReact: (String) -> Void
+
+    @State private var showReactionsBar = false
 
     var body: some View {
         let text = msg["content"] as? String ?? ""
@@ -752,29 +796,139 @@ struct ChatMessageItemView: View {
         let authorId = (msg["author"] as? [String: Any])?["id"] as? String ?? (msg["author_id"] as? String ?? "")
         let replyMarkup = msg["replyMarkup"] as? [String: Any]
         let inlineKeyboard = replyMarkup?["inline_keyboard"] as? [[[String: Any]]]
+        let rawReactions = msg["reactions"] as? [[String: Any]] ?? []
 
         HStack {
             if isMe { Spacer() }
 
             VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
-                if let att = attachment,
-                   let mime = att["mime"] as? String,
-                   mime.hasPrefix("image/"),
-                   let attUrl = att["url"] as? String {
-                    AuthenticatedAttachmentView(path: attUrl, mime: mime, name: att["name"] as? String ?? "Фото")
-                } else if let att = attachment,
-                   let mime = att["mime"] as? String,
-                   mime.hasPrefix("audio/"),
-                   let attUrl = att["url"] as? String {
-                    VoiceMessageBubbleView(isMe: isMe, msgId: msgId, attUrl: attUrl, player: player)
-                } else if let att = attachment, let path = att["url"] as? String {
-                    AuthenticatedAttachmentView(path: path, mime: att["mime"] as? String ?? "", name: att["name"] as? String ?? "Файл")
-                } else if !text.isEmpty {
-                    TextMessageBubbleView(text: text, isMe: isMe)
+                if showReactionsBar {
+                    HStack(spacing: 6) {
+                        ForEach(["👍", "❤️", "😂", "🔥", "💎", "🚀", "🎉", "💩"], id: \.self) { emoji in
+                            Button(action: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    showReactionsBar = false
+                                }
+                                onReact(emoji)
+                            }) {
+                                Text(emoji)
+                                    .font(.system(size: 22))
+                                    .padding(3)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22)
+                            .fill(Color(red: 24/255, green: 28/255, blue: 44/255).opacity(0.96))
+                            .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.2), lineWidth: 1))
+                            .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
+                    )
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
 
-                if let keyboard = inlineKeyboard {
-                    MessageInlineKeyboardView(inlineKeyboard: keyboard, authorId: authorId, messageId: msgId)
+                HStack(alignment: .bottom, spacing: 6) {
+                    if isMe {
+                        Button(action: {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                showReactionsBar.toggle()
+                            }
+                        }) {
+                            Image(systemName: "face.smiling")
+                                .font(.system(size: 13))
+                                .foregroundColor(Color.white.opacity(0.35))
+                                .padding(4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
+                        if let att = attachment,
+                           let mime = att["mime"] as? String,
+                           mime.hasPrefix("image/"),
+                           let attUrl = att["url"] as? String {
+                            AuthenticatedAttachmentView(path: attUrl, mime: mime, name: att["name"] as? String ?? "Фото")
+                        } else if let att = attachment,
+                           let mime = att["mime"] as? String,
+                           mime.hasPrefix("audio/"),
+                           let attUrl = att["url"] as? String {
+                            VoiceMessageBubbleView(isMe: isMe, msgId: msgId, attUrl: attUrl, player: player)
+                        } else if let att = attachment, let path = att["url"] as? String {
+                            AuthenticatedAttachmentView(path: path, mime: att["mime"] as? String ?? "", name: att["name"] as? String ?? "Файл")
+                        } else if !text.isEmpty {
+                            TextMessageBubbleView(text: text, isMe: isMe)
+                        }
+
+                        if let keyboard = inlineKeyboard {
+                            MessageInlineKeyboardView(inlineKeyboard: keyboard, authorId: authorId, messageId: msgId)
+                        }
+                    }
+                    .onLongPressGesture {
+                        let impact = UIImpactFeedbackGenerator(style: .medium)
+                        impact.impactOccurred()
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                            showReactionsBar.toggle()
+                        }
+                    }
+
+                    if !isMe {
+                        Button(action: {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                showReactionsBar.toggle()
+                            }
+                        }) {
+                            Image(systemName: "face.smiling")
+                                .font(.system(size: 13))
+                                .foregroundColor(Color.white.opacity(0.35))
+                                .padding(4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                if !rawReactions.isEmpty {
+                    HStack(spacing: 5) {
+                        ForEach(0..<rawReactions.count, id: \.self) { rIdx in
+                            let r = rawReactions[rIdx]
+                            let emoji = r["emoji"] as? String ?? ""
+                            let count = r["count"] as? Int ?? ((r["users"] as? [Any])?.count ?? 0)
+                            let reacted = r["reacted"] as? Bool ?? false
+                            if count > 0 && !emoji.isEmpty {
+                                Button(action: { onReact(emoji) }) {
+                                    HStack(spacing: 3) {
+                                        Text(emoji).font(.system(size: 13))
+                                        Text("\(count)")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(reacted ? .white : Theme.textSecondary)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(reacted ? Theme.accent.opacity(0.4) : Color.white.opacity(0.12))
+                                    .cornerRadius(12)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(reacted ? Theme.accent : Color.white.opacity(0.18), lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        Button(action: {
+                            withAnimation(.spring()) { showReactionsBar.toggle() }
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(Theme.textSecondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.08))
+                                .cornerRadius(10)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
 
@@ -810,7 +964,7 @@ struct AuthenticatedAttachmentView: View {
             }
         }
         .task(id: path) {
-            guard let url = URL(string: path.hasPrefix("https://") ? path : ApiService.shared.baseURL + path) else { return }
+            guard let url = ApiService.resolveMediaURL(path) else { return }
             var request = URLRequest(url: url)
             if let cookie = SessionStore.shared.cookie() { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
             guard let (data, response) = try? await URLSession.shared.data(for: request),
