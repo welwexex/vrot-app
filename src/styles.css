@@ -362,13 +362,13 @@ html:has(.welcome),body:has(.welcome),#root:has(.welcome){height:auto;min-height
 .verified-seal-icon {
   display: inline-block;
   vertical-align: middle;
-  filter: drop-shadow(0 1px 3px rgba(88, 101, 242, 0.45));
-  transition: transform 0.15s ease, filter 0.15s ease;
+  shape-rendering: geometricPrecision;
+  image-rendering: -webkit-optimize-contrast;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .badge-wrapper:hover .verified-seal-icon,
 .verified-seal-icon:hover {
-  transform: scale(1.16);
-  filter: drop-shadow(0 2px 7px rgba(88, 101, 242, 0.7));
+  transform: scale(1.18);
 }
 .donator-badge {
   display: inline-flex;
