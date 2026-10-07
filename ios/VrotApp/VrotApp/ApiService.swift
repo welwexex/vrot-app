@@ -183,4 +183,15 @@ final class ApiService: NSObject {
         }
         return (try? JSONSerialization.jsonObject(with: respData) as? [String: Any]) ?? [:]
     }
+
+    static func resolveMediaURL(_ raw: String?) -> URL? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
+            return URL(string: raw)
+        }
+        let clean = raw.hasPrefix("/") ? raw : "/" + raw
+        return URL(string: ApiService.shared.baseURL + clean)
+    }
 }
