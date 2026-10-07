@@ -38,7 +38,7 @@ async function sessionUser(token?:string){
   if(!token)return null; const q=await pool.query(`SELECT u.id,u.username,u.email,u.avatar_url,u.display_name,u.bio,u.banner_url,u.status,u.verified,u.donator,u.mrbeast_badge,u.admin_role,u.frozen_at,u.banned_at,u.ban_reason,u.is_bot FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.deleted_at IS NULL`,[sha256(token)]); return q.rows[0]||null;
 }
 const auth=wrap(async(req,res,next)=>{const user=await sessionUser(req.cookies.vrot_session);if(!user)return res.status(401).json({error:'Нужен вход'});if(user.banned_at)return res.status(403).json({error:user.ban_reason?`Аккаунт заблокирован: ${user.ban_reason}`:'Аккаунт заблокирован'});if(user.frozen_at&&['POST','PUT','PATCH','DELETE'].includes(req.method)&&req.path!=='/auth/logout')return res.status(423).json({error:'Аккаунт заморожен: доступен только просмотр данных на момент заморозки'});req.user=user;next();});
-const publicUser=(r:any)=>({id:r.id,username:r.username,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,bannerUrl:r.banner_url||null,bio:r.bio||'',status:r.is_bot?'bot':(r.status||'online'),isBot:Boolean(r.is_bot),verified:Boolean(r.verified),donator:Boolean(r.donator),mrbeastBadge:Boolean(r.mrbeast_badge),adminRole:r.admin_role||'user',frozen:Boolean(r.frozen_at),botCommands:r.bot_commands||[]});
+const publicUser=(r:any)=>({id:r.id,username:r.username,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,bannerUrl:r.banner_url||null,bio:r.bio||'',status:r.is_bot?'bot':(r.status||'online'),isBot:Boolean(r.is_bot),verified:Boolean(r.verified),donator:Boolean(r.donator),mrbeastBadge:Boolean(r.mrbeast_badge),adminRole:r.admin_role||'user',frozen:Boolean(r.frozen_at),botCommands:r.bot_commands||[],privacySettings:r.privacy_settings||{allowMessages:'everyone',allowCalls:'everyone',showBio:'everyone',showBanner:'everyone',showAvatar:'everyone'},chatWallpaper:r.chat_wallpaper||null,customization:r.customization||{accentColor:'#5865f2',messageStyle:'bubble'}});
 const adminRoles=['moderator','admin','owner'];
 const requireAdmin=(req:Request,res:Response,next:NextFunction)=>adminRoles.includes(req.user?.admin_role||'')?next():res.status(403).json({error:'Нужны права администратора'});
 
@@ -242,6 +242,50 @@ const profileSchema=z.object({username:z.string().trim().min(3).max(32).regex(/^
 app.put('/api/profile',auth,wrap(async(req,res)=>{const d=profileSchema.parse(req.body);if(!req.user?.is_bot&&d.username.toLowerCase().endsWith('bot'))return res.status(400).json({error:'Имена пользователей, оканчивающиеся на "bot", зарезервированы для ботов'});try{const q=await pool.query('UPDATE users SET username=$1,username_key=$2,display_name=$3,bio=$4,status=$5 WHERE id=$6 RETURNING *',[d.username,d.username.toLocaleLowerCase('ru'),d.displayName,d.bio,d.status,req.user!.id]);res.json({user:publicUser(q.rows[0])});}catch(e:any){if(e.code==='23505')return res.status(409).json({error:'Это имя пользователя уже занято'});throw e;}}));
 const passwordSchema=z.object({currentPassword:z.string().min(1).max(128),newPassword:z.string().min(12).max(128)});
 app.put('/api/profile/password',auth,rateLimit({windowMs:15*60_000,limit:8}),wrap(async(req,res)=>{const d=passwordSchema.parse(req.body),q=await pool.query('SELECT password_hash FROM users WHERE id=$1',[req.user!.id]);if(!q.rows[0]||!await argon2.verify(q.rows[0].password_hash,d.currentPassword))return res.status(403).json({error:'Текущий пароль неверен'});const hash=await argon2.hash(d.newPassword,{type:argon2.argon2id,memoryCost:65536,timeCost:3,parallelism:1});await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2',[hash,req.user!.id]);await pool.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2',[req.user!.id,sha256(req.cookies.vrot_session)]);await audit(req.user!.id,'account.password_changed',req.user!.id);res.status(204).end();}));
+
+const privacySchema=z.object({
+  allowMessages:z.enum(['everyone','contacts','nobody']).default('everyone'),
+  allowCalls:z.enum(['everyone','contacts','nobody']).default('everyone'),
+  showBio:z.enum(['everyone','contacts','nobody']).default('everyone'),
+  showBanner:z.enum(['everyone','contacts','nobody']).default('everyone'),
+  showAvatar:z.enum(['everyone','contacts','nobody']).default('everyone'),
+});
+app.put('/api/profile/privacy',auth,wrap(async(req,res)=>{
+  const d=privacySchema.parse(req.body);
+  const q=await pool.query('UPDATE users SET privacy_settings=$1 WHERE id=$2 RETURNING *',[JSON.stringify(d),req.user!.id]);
+  res.json({user:publicUser(q.rows[0])});
+}));
+
+app.put('/api/profile/wallpaper',auth,wrap(async(req,res)=>{
+  const d=z.object({chatWallpaper:z.string().nullable()}).parse(req.body);
+  const q=await pool.query('UPDATE users SET chat_wallpaper=$1 WHERE id=$2 RETURNING *',[d.chatWallpaper,req.user!.id]);
+  res.json({user:publicUser(q.rows[0])});
+}));
+
+app.put('/api/profile/customization',auth,wrap(async(req,res)=>{
+  const d=z.object({accentColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#5865f2'),messageStyle:z.enum(['bubble','minimal','compact']).default('bubble')}).parse(req.body);
+  const q=await pool.query('UPDATE users SET customization=$1 WHERE id=$2 RETURNING *',[JSON.stringify(d),req.user!.id]);
+  res.json({user:publicUser(q.rows[0])});
+}));
+
+app.get('/api/blocks',auth,wrap(async(req,res)=>{
+  const q=await pool.query('SELECT u.id,u.username,u.display_name,u.avatar_url,ub.created_at FROM user_blocks ub JOIN users u ON u.id=ub.blocked_id WHERE ub.user_id=$1 ORDER BY ub.created_at DESC',[req.user!.id]);
+  res.json(q.rows.map(r=>({id:r.id,username:r.username,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,createdAt:r.created_at})));
+}));
+
+app.post('/api/blocks',auth,wrap(async(req,res)=>{
+  const {userId}=z.object({userId:z.string().uuid()}).parse(req.body);
+  if(userId===req.user!.id)return res.status(400).json({error:'Нельзя заблокировать себя'});
+  await pool.query('INSERT INTO user_blocks(user_id,blocked_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[req.user!.id,userId]);
+  res.json({ok:true,blockedId:userId});
+}));
+
+app.delete('/api/blocks/:id',auth,wrap(async(req,res)=>{
+  const blockedId=String(req.params.id);
+  await pool.query('DELETE FROM user_blocks WHERE user_id=$1 AND blocked_id=$2',[req.user!.id,blockedId]);
+  res.status(204).end();
+}));
+
 async function issueSession(req:Request,res:Response,userId:string){const token=randomToken(),id=uuid();await pool.query(`INSERT INTO sessions(id,user_id,token_hash,expires_at,ip_hash,user_agent) VALUES($1,$2,$3,now()+interval '30 days',$4,$5)`,[id,userId,sha256(token),sha256(String(req.ip)),String(req.get('user-agent')||'').slice(0,300)]);res.cookie('vrot_session',token,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/',maxAge:30*86400_000});}
 
 app.get('/api/communities',auth,wrap(async(req,res)=>{const q=await pool.query(`SELECT c.id,c.name,c.description,c.avatar_url "avatarUrl",c.verified,cm.role FROM communities c JOIN community_members cm ON cm.community_id=c.id WHERE cm.user_id=$1 ORDER BY c.created_at`,[req.user!.id]);res.json(q.rows);}));
@@ -291,7 +335,24 @@ app.get('/api/communities/:id/members',auth,wrap(async(req,res)=>{const communit
 app.delete('/api/communities/:id/members/me',auth,wrap(async(req,res)=>{const communityId=String(req.params.id),role=await memberRole(req.user!.id,communityId);if(!role)return res.status(404).json({error:'Вы не состоите в сообществе'});if(role==='owner')return res.status(409).json({error:'Владелец не может покинуть сообщество'});await pool.query('DELETE FROM community_members WHERE community_id=$1 AND user_id=$2',[communityId,req.user!.id]);await audit(req.user!.id,'community.left',communityId);res.status(204).end();}));
 
 app.get('/api/users/search',auth,wrap(async(req,res)=>{const rawQ=String(req.query.q||'').trim().toLocaleLowerCase('ru');const qText=rawQ.replace(/^@/,'');if(qText.length<2)return res.json([]);const q=await pool.query(`SELECT id,username,display_name,avatar_url,status,verified,donator,mrbeast_badge,is_bot,bot_commands FROM users WHERE deleted_at IS NULL AND banned_at IS NULL AND id<>$1 AND (username_key LIKE $2 OR lower(display_name) LIKE $2) ORDER BY CASE WHEN username_key=$3 THEN 0 ELSE 1 END,username_key LIMIT 12`,[req.user!.id,`${qText}%`,qText]);res.json(q.rows.map(r=>({...publicUser(r),status:computePresence(r.id,r.status,r.is_bot)})));}));
-app.get('/api/users/:id/profile',auth,wrap(async(req,res)=>{const q=await pool.query('SELECT id,username,display_name,avatar_url,banner_url,bio,status,verified,donator,mrbeast_badge,admin_role,frozen_at,is_bot,bot_commands FROM users WHERE id=$1 AND deleted_at IS NULL AND banned_at IS NULL',[req.params.id]);if(!q.rows[0])return res.status(404).json({error:'Профиль не найден'});res.json({user:{...publicUser(q.rows[0]),status:computePresence(q.rows[0].id,q.rows[0].status,q.rows[0].is_bot)}});}));
+app.get('/api/users/:id/profile',auth,wrap(async(req,res)=>{
+  const q=await pool.query('SELECT id,username,display_name,avatar_url,banner_url,bio,status,verified,donator,mrbeast_badge,admin_role,frozen_at,is_bot,bot_commands,privacy_settings FROM users WHERE id=$1 AND deleted_at IS NULL AND banned_at IS NULL',[req.params.id]);
+  if(!q.rows[0])return res.status(404).json({error:'Профиль не найден'});
+  const target=q.rows[0];
+  const isSelf=target.id===req.user!.id;
+  const isBlocked=(await pool.query('SELECT 1 FROM user_blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1)',[req.user!.id,target.id])).rowCount > 0;
+  const privacy=target.privacy_settings||{};
+  const isFriend=(await pool.query("SELECT 1 FROM friendships WHERE ((requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)) AND status='accepted'",[req.user!.id,target.id])).rowCount > 0;
+  let bio=target.bio||'';
+  let avatarUrl=target.avatar_url||null;
+  let bannerUrl=target.banner_url||null;
+  if(!isSelf){
+    if(privacy.showBio==='nobody'||(privacy.showBio==='contacts'&&!isFriend)||isBlocked) bio='';
+    if(privacy.showAvatar==='nobody'||(privacy.showAvatar==='contacts'&&!isFriend)||isBlocked) avatarUrl=null;
+    if(privacy.showBanner==='nobody'||(privacy.showBanner==='contacts'&&!isFriend)||isBlocked) bannerUrl=null;
+  }
+  res.json({user:{...publicUser(target),bio,avatarUrl,bannerUrl,isBlocked,status:computePresence(target.id,target.status,target.is_bot)}});
+}));
 app.get('/api/friends',auth,wrap(async(req,res)=>{const q=await pool.query(`SELECT f.status,f.created_at,CASE WHEN f.requester_id=$1 THEN 'outgoing' ELSE 'incoming' END direction,u.id,u.username,u.display_name,u.avatar_url,u.banner_url,u.status presence,u.verified,u.donator,u.mrbeast_badge,u.is_bot,u.bot_commands FROM friendships f JOIN users u ON u.id=CASE WHEN f.requester_id=$1 THEN f.addressee_id ELSE f.requester_id END WHERE (f.requester_id=$1 OR f.addressee_id=$1) AND u.deleted_at IS NULL ORDER BY CASE f.status WHEN 'pending' THEN 0 ELSE 1 END,u.username_key`,[req.user!.id]);res.json(q.rows.map(r=>({...r,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,bannerUrl:r.banner_url||null,mrbeastBadge:Boolean(r.mrbeast_badge),isBot:Boolean(r.is_bot),botCommands:r.bot_commands||[],presence:computePresence(r.id,r.presence,r.is_bot)})));}));
 app.post('/api/friends/requests',auth,rateLimit({windowMs:60_000,limit:20}),wrap(async(req,res)=>{const d=z.object({username:z.string().trim().min(3).max(32)}).parse(req.body),target=(await pool.query('SELECT id,username,is_bot FROM users WHERE username_key=$1 AND deleted_at IS NULL',[d.username.toLocaleLowerCase('ru')])).rows[0];if(!target||target.id===req.user!.id)return res.status(404).json({error:'Пользователь не найден'});if(target.is_bot){await pool.query("INSERT INTO friendships(requester_id,addressee_id,status) VALUES($1,$2,'accepted') ON CONFLICT (requester_id,addressee_id) DO UPDATE SET status='accepted'",[req.user!.id,target.id]);io.to(`user:${req.user!.id}`).emit('friend:updated');return res.status(201).json({id:target.id,username:target.username,status:'accepted',direction:'outgoing'});}const existing=(await pool.query('SELECT status FROM friendships WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)',[req.user!.id,target.id])).rows[0];if(existing)return res.status(409).json({error:existing.status==='accepted'?'Вы уже друзья':'Заявка уже существует'});await pool.query('INSERT INTO friendships(requester_id,addressee_id) VALUES($1,$2)',[req.user!.id,target.id]);await audit(req.user!.id,'friend.requested',target.id);io.to(`user:${target.id}`).emit('friend:updated');res.status(201).json({id:target.id,username:target.username,status:'pending',direction:'outgoing'});}));
 app.post('/api/friends/:id/accept',auth,wrap(async(req,res)=>{const q=await pool.query("UPDATE friendships SET status='accepted' WHERE requester_id=$1 AND addressee_id=$2 AND status='pending' RETURNING requester_id",[req.params.id,req.user!.id]);if(!q.rows[0])return res.status(404).json({error:'Заявка не найдена'});await audit(req.user!.id,'friend.accepted',String(req.params.id));io.to(`user:${req.params.id}`).emit('friend:updated');res.status(204).end();}));
@@ -325,6 +386,10 @@ app.get('/api/friends/:id/messages',auth,wrap(async(req,res)=>{
 
 app.post('/api/friends/:id/messages',auth,rateLimit({windowMs:10_000,limit:30}),wrap(async(req,res)=>{
   const friendId=String(req.params.id);
+  const isBlocked = (await pool.query('SELECT 1 FROM user_blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1)', [friendId, req.user!.id])).rowCount > 0;
+  if (isBlocked) return res.status(403).json({ error: 'Пользователь ограничил входящие сообщения' });
+  const recipientUser = (await pool.query('SELECT privacy_settings FROM users WHERE id=$1', [friendId])).rows[0];
+  if (recipientUser?.privacy_settings?.allowMessages === 'nobody') return res.status(403).json({ error: 'Пользователь запретил входящие сообщения' });
   if(!await areFriends(req.user!.id,friendId))return res.status(403).json({error:'Общение доступно только друзьям'});
   const d=messageSchema.parse(req.body);
   if(!await ownAttachment(req.user!.id,d.attachmentId))return res.status(403).json({error:'Файл недоступен'});
@@ -632,9 +697,37 @@ io.on('connection',socket=>{
     io.to(data.to).emit('call:signal',{from:socket.id,user:publicUser(socket.data.user),description:data.description,candidate:data.candidate});
   });
   socket.on('call:leave',async()=>leaveCalls(socket));
-  socket.on('call:invite',async(data:{friendId:string;video:boolean},ack)=>{const room=await callRoom(socket.data.user.id,{kind:'friend',id:data?.friendId});if(!room)return ack?.({ok:false,error:'Пользователь не в друзьях'});const callId=uuid(),expiresAt=Date.now()+45000;const timer=setTimeout(()=>finishPendingCall(callId,'timeout'),45000);pendingCalls.set(callId,{callerId:uid,calleeId:data.friendId,timer});io.to(`user:${data.friendId}`).emit('call:incoming',{from:publicUser(socket.data.user),video:Boolean(data.video),callId,expiresAt});void sendPush(data.friendId,{kind:'call',friendId:socket.data.user.id,video:Boolean(data.video),callId,expiresAt,title:`Входящий вызов: ${socket.data.user.display_name||socket.data.user.username}`,body:data.video?'📹 Входящий видеозвонок':'📞 Входящий голосовой звонок',url:`/?call=${socket.data.user.id}`,tag:`call:${socket.data.user.id}`});if(process.env.IOS_VOIP_ENABLED==='true')void sendApplePush(data.friendId,'voip',{callId,friendId:uid,callerName:socket.data.user.display_name||socket.data.user.username,video:Boolean(data.video),expiresAt}).catch(console.error);ack?.({ok:true,callId,expiresAt});});
+  socket.on('call:invite',async(data:{friendId:string;video:boolean},ack)=>{
+    const callee = (await pool.query('SELECT id, is_bot, privacy_settings FROM users WHERE id=$1', [data?.friendId])).rows[0];
+    if(!callee) return ack?.({ok:false,error:'Пользователь не найден'});
+    if(callee.is_bot) return ack?.({ok:false,error:'Ботам нельзя звонить'});
+    const isBlocked = (await pool.query('SELECT 1 FROM user_blocks WHERE user_id=$1 AND blocked_id=$2', [data.friendId, uid])).rowCount > 0;
+    if(isBlocked) return ack?.({ok:false,error:'Пользователь ограничил входящие вызовы'});
+    const privacy = callee.privacy_settings || {};
+    if(privacy.allowCalls === 'nobody') return ack?.({ok:false,error:'Пользователь запретил входящие звонки'});
+    const room=await callRoom(socket.data.user.id,{kind:'friend',id:data?.friendId});
+    if(!room)return ack?.({ok:false,error:'Пользователь не в друзьях'});
+    const callId=uuid(),expiresAt=Date.now()+45000;
+    const timer=setTimeout(()=>finishPendingCall(callId,'timeout'),45000);
+    pendingCalls.set(callId,{callerId:uid,calleeId:data.friendId,timer});
+    io.to(`user:${data.friendId}`).emit('call:incoming',{from:publicUser(socket.data.user),video:Boolean(data.video),callId,expiresAt});
+    void sendPush(data.friendId,{kind:'call',friendId:socket.data.user.id,video:Boolean(data.video),callId,expiresAt,title:`Входящий вызов: ${socket.data.user.display_name||socket.data.user.username}`,body:data.video?'📹 Входящий видеозвонок':'📞 Входящий голосовой звонок',url:`/?call=${socket.data.user.id}`,tag:`call:${socket.data.user.id}`});
+    if(process.env.IOS_VOIP_ENABLED==='true')void sendApplePush(data.friendId,'voip',{callId,friendId:uid,callerName:socket.data.user.display_name||socket.data.user.username,video:Boolean(data.video),expiresAt}).catch(console.error);
+    ack?.({ok:true,callId,expiresAt});
+  });
   socket.on('call:respond',(data:{callId:string;accept:boolean},ack)=>{const pending=pendingCalls.get(data?.callId);if(!pending||pending.calleeId!==uid)return ack?.({ok:false,error:'Вызов завершён'});finishPendingCall(data.callId,data.accept?'answered':'declined');ack?.({ok:true});});
-  socket.on('call:cancel',async(data:{friendId:string;callId?:string})=>{for(const [id,p] of pendingCalls)if(p.callerId===uid&&p.calleeId===data?.friendId&&(!data.callId||data.callId===id))finishPendingCall(id,'cancelled');if(data?.friendId){io.to(`user:${data.friendId}`).emit('call:cancelled',{from:publicUser(socket.data.user),callId:data.callId});io.to(`user:${data.friendId}`).emit('call:peer-left',{socketId:socket.id});}});
+  socket.on('call:cancel',async(data:{friendId:string;callId?:string})=>{
+    for(const [id,p] of pendingCalls){
+      if(p.callerId===uid&&(!data?.friendId||p.calleeId===data.friendId)&&(!data.callId||data.callId===id)){
+        finishPendingCall(id,'cancelled');
+      }
+    }
+    if(data?.friendId){
+      io.to(`user:${data.friendId}`).emit('call:cancelled',{from:publicUser(socket.data.user),callId:data.callId});
+      io.to(`user:${data.friendId}`).emit('call:ended',{callId:data.callId,reason:'cancelled',callerId:uid,calleeId:data.friendId});
+      io.to(`user:${data.friendId}`).emit('call:peer-left',{socketId:socket.id});
+    }
+  });
   socket.on('disconnecting',()=>{for(const room of socket.rooms)if(room.startsWith('call:'))socket.to(room).emit('call:peer-left',{socketId:socket.id});});
   socket.on('disconnect',()=>{
     const rem=(onlineUsers.get(uid)||1)-1;
