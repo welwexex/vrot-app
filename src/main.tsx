@@ -11,6 +11,9 @@ type User = {
   id: string;
   username: string;
   displayName?: string;
+  email?: string;
+  emailVerified?: boolean;
+  totpEnabled?: boolean;
   avatarUrl?: string | null;
   bannerUrl?: string | null;
   bio?: string;
@@ -1669,18 +1672,94 @@ function Welcome({
   openLegal: (x: string) => void;
 }) {
   const [mode, setMode] = useState<
-      "login" | "register" | "reset-request" | "reset-confirm"
+      "login" | "register" | "reset-request" | "reset-confirm" | "2fa-challenge"
     >("login"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [resetEmail, setResetEmail] = useState(""),
+    [twoFaTempToken, setTwoFaTempToken] = useState(""),
+    [twoFaUserId, setTwoFaUserId] = useState(""),
+    [twoFaCode, setTwoFaCode] = useState(""),
     [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const verifyToken = params.get("token");
+      if (verifyToken && (window.location.pathname.includes("verify-email") || params.has("token"))) {
+        setBusy(true);
+        void api<{ message: string }>("/api/auth/verify-email", {
+          method: "POST",
+          body: JSON.stringify({ token: verifyToken }),
+        })
+          .then((res) => {
+            setNotice(res.message || "Email успешно подтверждён! 🎉 Теперь войдите в свой аккаунт.");
+            setMode("login");
+          })
+          .catch((err) => {
+            setError((err as Error).message);
+          })
+          .finally(() => setBusy(false));
+      }
+    } catch {}
+  }, []);
+
+  async function handlePasskeyLogin() {
+    if (typeof window === "undefined" || !window.PublicKeyCredential) {
+      setError("Ваш браузер не поддерживает ключи доступа Passkey.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const opts = await api<{ challenge: string; rpId: string; timeout: number }>("/api/auth/passkeys/login-options", {
+        method: "POST",
+      });
+      const chalBytes = Uint8Array.from(atob(opts.challenge.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+      const cred = (await navigator.credentials.get({
+        publicKey: {
+          challenge: chalBytes,
+          rpId: opts.rpId,
+          timeout: opts.timeout || 60000,
+          userVerification: "preferred",
+        },
+      })) as any;
+
+      if (!cred) throw new Error("Ключ доступа не выбран");
+
+      const verifyRes = await api<{ user: User }>("/api/auth/passkeys/login-verify", {
+        method: "POST",
+        body: JSON.stringify({
+          challenge: opts.challenge,
+          id: cred.id,
+        }),
+      });
+      onLogin(verifyRes.user);
+    } catch (err) {
+      setError((err as Error).message || "Не удалось войти по Passkey");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError("");
     const f = new FormData(e.currentTarget);
     try {
+      if (mode === "2fa-challenge") {
+        const r = await api<{ user: User }>("/api/auth/login/2fa", {
+          method: "POST",
+          body: JSON.stringify({
+            tempToken: twoFaTempToken,
+            code: twoFaCode.trim(),
+            userId: twoFaUserId,
+          }),
+        });
+        onLogin(r.user);
+        return;
+      }
       if (mode === "reset-request") {
         const email = String(f.get("email") || "")
           .trim()
@@ -1720,11 +1799,19 @@ function Welcome({
               birthDate: f.get("birthDate"),
               legalAccepted: f.get("legalAccepted") === "on",
             };
-      const r = await api<{ user: User }>(
+      const r = await api<{ user?: User; requires2FA?: boolean; tempToken?: string; userId?: string }>(
         `/api/auth/${mode === "login" ? "login" : "register"}`,
         { method: "POST", body: JSON.stringify(body) },
       );
-      onLogin(r.user);
+      if (r.requires2FA && r.tempToken && r.userId) {
+        setTwoFaTempToken(r.tempToken);
+        setTwoFaUserId(r.userId);
+        setMode("2fa-challenge");
+        return;
+      }
+      if (r.user) {
+        onLogin(r.user);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1761,7 +1848,7 @@ function Welcome({
       <section className="auth-card" aria-labelledby="auth-title">
         <div className="tabs">
           <button
-            className={mode === "login" ? "active" : ""}
+            className={mode === "login" || mode === "2fa-challenge" ? "active" : ""}
             onClick={() => {
               setMode("login");
               setError("");
@@ -1782,11 +1869,13 @@ function Welcome({
           </button>
         </div>
         <h2 id="auth-title">
-          {mode === "login"
-            ? "С возвращением"
-            : mode === "register"
-              ? "Создать аккаунт"
-              : "Восстановить пароль"}
+          {mode === "2fa-challenge"
+            ? "Двухфакторная защита"
+            : mode === "login"
+              ? "С возвращением"
+              : mode === "register"
+                ? "Создать аккаунт"
+                : "Восстановить пароль"}
         </h2>
         {mode === "register" && cfg.registrationMode !== "open" ? (
           <div className="notice" role="status">
@@ -1798,6 +1887,23 @@ function Welcome({
           </div>
         ) : (
           <form onSubmit={submit}>
+            {mode === "2fa-challenge" && (
+              <>
+                <p className="reset-hint">
+                  🔒 Для вашего аккаунта включена двухфакторная аутентификация. Введите 6-значный код из Google Authenticator или один из ваших резервных кодов:
+                </p>
+                <label>
+                  Код подтверждения (TOTP или резервный)
+                  <input
+                    value={twoFaCode}
+                    onChange={(e) => setTwoFaCode(e.target.value)}
+                    placeholder="123456"
+                    autoFocus
+                    required
+                  />
+                </label>
+              </>
+            )}
             {mode === "register" && (
               <label>
                 Имя пользователя
@@ -1810,7 +1916,7 @@ function Welcome({
                 />
               </label>
             )}
-            {mode !== "reset-confirm" && (
+            {(mode === "login" || mode === "register" || mode === "reset-request") && (
               <label>
                 Email
                 <input
@@ -1909,25 +2015,50 @@ function Welcome({
             <button className="primary" disabled={busy}>
               {busy
                 ? "Подождите…"
-                : mode === "login"
-                  ? "Войти"
-                  : mode === "register"
-                    ? "Создать аккаунт"
-                    : mode === "reset-request"
-                      ? "Отправить код"
-                      : "Изменить пароль"}
+                : mode === "2fa-challenge"
+                  ? "Подтвердить вход"
+                  : mode === "login"
+                    ? "Войти"
+                    : mode === "register"
+                      ? "Создать аккаунт"
+                      : mode === "reset-request"
+                        ? "Отправить код"
+                        : "Изменить пароль"}
             </button>
             {mode === "login" && (
+              <>
+                <button
+                  type="button"
+                  className="button secondary passkey-login-btn"
+                  onClick={handlePasskeyLogin}
+                  disabled={busy}
+                >
+                  🔑 Войти через Passkey (Touch ID / Face ID)
+                </button>
+                <button
+                  type="button"
+                  className="auth-reset-link"
+                  onClick={() => {
+                    setMode("reset-request");
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  Забыли пароль?
+                </button>
+              </>
+            )}
+            {mode === "2fa-challenge" && (
               <button
                 type="button"
                 className="auth-reset-link"
                 onClick={() => {
-                  setMode("reset-request");
+                  setMode("login");
                   setError("");
                   setNotice("");
                 }}
               >
-                Забыли пароль?
+                Вернуться назад к входу
               </button>
             )}
             {mode === "reset-confirm" && (
@@ -6527,10 +6658,11 @@ function Settings({
   user: User;
   onAvatar: (u: User) => void;
 }) {
-  const [danger, setDanger] = useState(false),
-    [error, setError] = useState(""),
-    [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<"profile" | "security" | "notifications" | "account">("profile");
+  const [danger, setDanger] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem("vrot_theme") || "dark");
   const [language, setLanguage] = useState(localStorage.getItem("vrot_language") || "ru");
 
@@ -6551,6 +6683,219 @@ function Settings({
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+
+  // Security Tab States
+  const [passkeys, setPasskeys] = useState<Array<{ id: string; deviceName: string; createdAt: string }>>([]);
+  const [sessions, setSessions] = useState<Array<{ id: string; ipAddress: string; deviceName: string; createdAt: string; lastSeenAt: string; isCurrent: boolean }>>([]);
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; qrDataUrl: string; otpauthUri: string } | null>(null);
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [totpCodeInput, setTotpCodeInput] = useState("");
+  const [disableTotpModal, setDisableTotpModal] = useState(false);
+  const [disableTotpCode, setDisableTotpCode] = useState("");
+
+  useEffect(() => {
+    if (tab === "security") {
+      void loadSecurityData();
+    }
+  }, [tab]);
+
+  async function loadSecurityData() {
+    try {
+      const [pkList, sessList] = await Promise.all([
+        api<Array<{ id: string; deviceName: string; createdAt: string }>>("/api/auth/passkeys"),
+        api<Array<{ id: string; ipAddress: string; deviceName: string; createdAt: string; lastSeenAt: string; isCurrent: boolean }>>("/api/auth/sessions"),
+      ]);
+      setPasskeys(pkList || []);
+      setSessions(sessList || []);
+    } catch {
+      // quiet fallback
+    }
+  }
+
+  async function handleResendEmail() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const r = await api<{ ok: boolean; message: string }>("/api/auth/verify-email/resend", { method: "POST" });
+      setNotice(r.message || "Письмо с подтверждением отправлено на ваш email!");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartTotpSetup() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const r = await api<{ secret: string; qrDataUrl: string; otpauthUri: string }>("/api/auth/2fa/setup", { method: "POST" });
+      setTotpSetup(r);
+      setTotpCodeInput("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleVerifyTotp() {
+    if (!totpSetup || !totpCodeInput.trim()) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const r = await api<{ ok: boolean; backupCodes: string[] }>("/api/auth/2fa/verify", {
+        method: "POST",
+        body: JSON.stringify({ code: totpCodeInput.trim(), secret: totpSetup.secret }),
+      });
+      setBackupCodes(r.backupCodes);
+      setTotpSetup(null);
+      setTotpCodeInput("");
+      onAvatar({ ...user, totpEnabled: true });
+      setNotice("Двухфакторная аутентификация успешно включена! Обязательно сохраните резервные коды.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDisableTotp(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api("/api/auth/2fa/disable", {
+        method: "POST",
+        body: JSON.stringify({ code: disableTotpCode.trim() }),
+      });
+      setDisableTotpModal(false);
+      setDisableTotpCode("");
+      setBackupCodes(null);
+      onAvatar({ ...user, totpEnabled: false });
+      setNotice("Двухфакторная аутентификация отключена.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAddPasskey() {
+    if (typeof window === "undefined" || !window.navigator.credentials) {
+      setError("Ваш браузер не поддерживает Passkeys (WebAuthn)");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const opts = await api<{
+        challenge: string;
+        rp: { name: string; id: string };
+        user: { id: string; name: string; displayName: string };
+        pubKeyCredParams: { alg: number; type: string }[];
+        timeout?: number;
+      }>("/api/auth/passkeys/register-options", { method: "POST" });
+
+      const chalBytes = Uint8Array.from(atob(opts.challenge.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+      const userIdBytes = Uint8Array.from(atob(opts.user.id.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+
+      const cred = (await navigator.credentials.create({
+        publicKey: {
+          challenge: chalBytes,
+          rp: opts.rp,
+          user: {
+            id: userIdBytes,
+            name: opts.user.name,
+            displayName: opts.user.displayName,
+          },
+          pubKeyCredParams: opts.pubKeyCredParams as any,
+          timeout: opts.timeout || 60000,
+          attestation: "none",
+        },
+      })) as any;
+
+      if (!cred) throw new Error("Создание Passkey отменено");
+
+      function buf2b64(buf: ArrayBuffer): string {
+        const u8 = new Uint8Array(buf);
+        let s = "";
+        for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+        return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      const deviceName = /Mac|iPhone|iPad/.test(navigator.userAgent)
+        ? "Apple Passkey (Face ID / Touch ID)"
+        : /Windows/.test(navigator.userAgent)
+        ? "Windows Hello Passkey"
+        : "FIDO2 Security Key";
+
+      await api("/api/auth/passkeys/register-verify", {
+        method: "POST",
+        body: JSON.stringify({
+          challenge: opts.challenge,
+          id: cred.id,
+          deviceName,
+          response: {
+            attestationObject: buf2b64(cred.response.attestationObject),
+            clientDataJSON: buf2b64(cred.response.clientDataJSON),
+          },
+        }),
+      });
+
+      setNotice("Ключ доступа (Passkey) успешно добавлен!");
+      void loadSecurityData();
+    } catch (e) {
+      setError((e as Error).message || "Ошибка добавления Passkey");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeletePasskey(id: string) {
+    if (!confirm("Удалить этот Passkey?")) return;
+    setBusy(true);
+    try {
+      await api(`/api/auth/passkeys/${id}`, { method: "DELETE" });
+      setNotice("Passkey удален");
+      void loadSecurityData();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRevokeSession(id: string) {
+    setBusy(true);
+    try {
+      await api(`/api/auth/sessions/${id}`, { method: "DELETE" });
+      setNotice("Сеанс завершён");
+      void loadSecurityData();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRevokeOtherSessions() {
+    setBusy(true);
+    try {
+      await api("/api/auth/sessions-other", { method: "DELETE" });
+      setNotice("Все остальные сеансы успешно завершены");
+      void loadSecurityData();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleEnablePush() {
     if (typeof window === "undefined" || !("Notification" in window)) {
@@ -6744,361 +7089,758 @@ function Settings({
         <button className="close" onClick={close} aria-label="Закрыть">
           ×
         </button>
-        <h2 id="settings-title">Мой профиль</h2>
-        <div className="appearance-settings">
-          <h3>{tr("Внешний вид и язык", "Appearance and language")}</h3>
-          <label>{tr("Тема", "Theme")}
-            <select value={theme} onChange={(event) => {const value=event.target.value;setTheme(value);localStorage.setItem("vrot_theme",value);document.documentElement.dataset.theme=value;}}>
-              <option value="dark">{tr("Тёмная", "Dark")}</option><option value="light">{tr("Светлая", "Light")}</option>
-            </select>
-          </label>
-          <label>{tr("Язык интерфейса", "Interface language")}
-            <select value={language} onChange={(event) => {const value=event.target.value;setLanguage(value);localStorage.setItem("vrot_language",value);document.documentElement.lang=value;window.location.reload();}}>
-              <option value="ru">Русский</option><option value="en">English</option>
-            </select>
-          </label>
-        </div>
+        <h2 id="settings-title">
+          {tab === "profile"
+            ? tr("Мой профиль", "My Profile")
+            : tab === "security"
+            ? tr("Безопасность", "Security")
+            : tab === "notifications"
+            ? tr("Уведомления", "Notifications")
+            : tr("Аккаунт", "Account")}
+        </h2>
 
-        {/* Скрытые инпуты для загрузки файлов */}
-        <input
-          ref={avatarInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          style={{ display: "none" }}
-          onChange={(e) => handleFileChosen(e, "avatar")}
-        />
-        <input
-          ref={bannerInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          style={{ display: "none" }}
-          onChange={(e) => handleFileChosen(e, "banner")}
-        />
-
-        <div className="profile-preview">
-          {user.bannerUrl ? (
-            <div
-              className="profile-banner-clickable"
-              onClick={() => setBannerAction(true)}
-              title="Нажмите, чтобы изменить или удалить шапку"
-            >
-              <img
-                className="profile-banner"
-                src={user.bannerUrl}
-                alt="Шапка профиля"
-              />
-              <span className="banner-hover-tag">
-                Изменить или удалить шапку
-              </span>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="profile-banner fallback add-banner-btn"
-              onClick={() => bannerInputRef.current?.click()}
-              title="Добавить шапку профиля"
-            >
-              + Добавить шапку
-            </button>
-          )}
-
-          {user.avatarUrl ? (
-            <div
-              className="profile-avatar-clickable"
-              onClick={() => setAvatarAction(true)}
-              title="Нажмите, чтобы изменить или удалить аватар"
-            >
-              <Avatar user={user} />
-              <span className="avatar-hover-icon">✎</span>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="profile-avatar-clickable empty-avatar-btn"
-              onClick={() => avatarInputRef.current?.click()}
-              title="Добавить аватар"
-            >
-              <span className="avatar-plus-symbol">+</span>
-            </button>
-          )}
-
-          <div>
-            <strong>
-              {user.displayName || user.username}
-              <UserBadges user={user} />
-            </strong>
-            <small>@{user.username}</small>
-            <p>{user.bio || "Добавьте описание профиля"}</p>
-          </div>
-        </div>
-
-        {/* Всплывающее меню для шапки при клике */}
-        {bannerAction && (
-          <div
-            className="action-menu-backdrop"
-            onClick={() => setBannerAction(false)}
+        {/* Навигационные вкладки Liquid Glass */}
+        <nav className="settings-tabs-nav" aria-label="Разделы настроек">
+          <button
+            type="button"
+            className={`settings-tab-btn ${tab === "profile" ? "active" : ""}`}
+            onClick={() => setTab("profile")}
           >
-            <div
-              className="action-menu-sheet"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h4>Шапка профиля</h4>
-              <button
-                type="button"
-                className="button"
-                onClick={() => {
-                  setBannerAction(false);
-                  bannerInputRef.current?.click();
-                }}
-              >
-                🖼️ Загрузить новую шапку
-              </button>
-              <button
-                type="button"
-                className="button danger"
-                onClick={() => {
-                  setBannerAction(false);
-                  updateImage("banner", null);
-                }}
-              >
-                🗑️ Удалить шапку
-              </button>
-              <button
-                type="button"
-                className="button subtle"
-                onClick={() => setBannerAction(false)}
-              >
-                Отмена
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Всплывающее меню для аватара при клике */}
-        {avatarAction && (
-          <div
-            className="action-menu-backdrop"
-            onClick={() => setAvatarAction(false)}
-          >
-            <div
-              className="action-menu-sheet"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h4>Аватар профиля</h4>
-              <button
-                type="button"
-                className="button"
-                onClick={() => {
-                  setAvatarAction(false);
-                  avatarInputRef.current?.click();
-                }}
-              >
-                🖼️ Загрузить новый аватар
-              </button>
-              <button
-                type="button"
-                className="button danger"
-                onClick={() => {
-                  setAvatarAction(false);
-                  updateImage("avatar", null);
-                }}
-              >
-                🗑️ Удалить аватар
-              </button>
-              <button
-                type="button"
-                className="button subtle"
-                onClick={() => setAvatarAction(false)}
-              >
-                Отмена
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Модальное окно обрезки изображений */}
-        {cropTarget && (
-          <ImageCropperModal
-            imageSrc={cropTarget.src}
-            aspect={cropTarget.aspect}
-            isCircle={cropTarget.isCircle}
-            title={cropTarget.title}
-            onCancel={() => setCropTarget(null)}
-            onSave={(croppedBase64) => {
-              const kind = cropTarget.kind;
-              setCropTarget(null);
-              void updateImage(kind, croppedBase64);
-            }}
-          />
-        )}
-
-        <form className="settings-form" onSubmit={saveProfile}>
-          <label>
-            Имя пользователя
-            <input
-              name="username"
-              defaultValue={user.username}
-              minLength={3}
-              maxLength={32}
-              required
-            />
-          </label>
-          <label>
-            Отображаемое имя
-            <input
-              name="displayName"
-              defaultValue={user.displayName || user.username}
-              maxLength={64}
-              required
-            />
-          </label>
-          <label>
-            Описание
-            <textarea
-              name="bio"
-              defaultValue={user.bio || ""}
-              maxLength={300}
-              rows={3}
-            />
-          </label>
-          <label>
-            Статус
-            <select name="status" defaultValue={user.status || "online"}>
-              <option value="online">В сети</option>
-              <option value="idle">Не активен</option>
-              <option value="dnd">Не беспокоить</option>
-              <option value="offline">Невидимый</option>
-            </select>
-          </label>
-          <button className="button" disabled={busy}>
-            Сохранить профиль
-          </button>
-        </form>
-        {notice && <p className="success">{notice}</p>}
-        {error && <p className="error">{error}</p>}
-
-        <hr />
-        <h3>Уведомления на телефон и ПК</h3>
-        <div className="push-settings-box">
-          <p>
-            Включите уведомления, чтобы получать сообщения от друзей и вызовы в
-            систему Windows или на телефон даже при свёрнутом браузере.
-          </p>
-          <div className="push-status-row">
-            <span>Статус в системе: </span>
-            {notifState === "granted" ? (
-              <strong className="status-granted">✅ Разрешено</strong>
-            ) : notifState === "denied" ? (
-              <strong className="status-denied">
-                ⚠️ Заблокировано в браузере
-              </strong>
-            ) : (
-              <strong className="status-default">⏳ Не включено</strong>
-            )}
-          </div>
-          {notifState === "granted" ? (
-            <div className="push-btn-row">
-              <button
-                type="button"
-                className="button push-test-btn"
-                disabled={busy}
-                onClick={handleTestNotification}
-              >
-                🔔 Отправить тестовое уведомление
-              </button>
-            </div>
-          ) : notifState === "denied" ? (
-            <p className="push-denied-tip">
-              Уведомления для <strong>cz.vrot.fun</strong> были заблокированы в
-              браузере. Чтобы включить: нажмите на иконку замочка/настроек слева
-              от адресной строки и переключите «Уведомления» в «Разрешить»,
-              затем обновите страницу.
-            </p>
-          ) : (
-            <button
-              type="button"
-              className="button push-enable-btn"
-              disabled={busy}
-              onClick={handleEnablePush}
-            >
-              🔔 Включить уведомления
-            </button>
-          )}
-
-          <hr className="subtle-hr" />
-          <div className="android-apk-box">
-            <h4>📱 Мобильные приложения</h4>
-            <p>
-              Официальные мобильные приложения VROT для Android и iOS (iPhone / iPad) с поддержкой аудио/видеозвонков, реакций на сообщения и ботов.
-            </p>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '12px' }}>
-              <a
-                href="/download/vrot.apk"
-                className="button secondary apk-download-btn"
-                download="vrot.apk"
-              >
-                📥 Скачать для Android (.apk)
-              </a>
-              <a
-                href="/download/vrot.ipa"
-                className="button secondary apk-download-btn"
-                download="vrot.ipa"
-              >
-                🍏 Скачать для iPhone (.ipa / eSign)
-              </a>
-            </div>
-          </div>
-        </div>
-
-        <hr />
-        <h3>Пароль</h3>
-        <form className="settings-form two" onSubmit={password}>
-          <label>
-            Текущий пароль
-            <input name="currentPassword" type="password" required />
-          </label>
-          <label>
-            Новый пароль
-            <input name="newPassword" type="password" minLength={12} required />
-          </label>
-          <button className="button" disabled={busy}>
-            Изменить пароль
-          </button>
-        </form>
-
-        <hr />
-        <h3>Управление аккаунтом</h3>
-        <div className="account-actions-group">
-          <a
-            className="button secondary"
-            href={apiUrl("/api/account/export")}
-            download
-          >
-            📥 Скачать мои данные
-          </a>
-          <button type="button" className="button secondary" onClick={logout}>
-            🚪 Выйти
+            👤 {tr("Профиль", "Profile")}
           </button>
           <button
             type="button"
-            className="button danger"
-            onClick={() => setDanger(!danger)}
+            className={`settings-tab-btn ${tab === "security" ? "active" : ""}`}
+            onClick={() => setTab("security")}
           >
-            🗑️ Удалить аккаунт
+            🛡️ {tr("Безопасность", "Security")}
           </button>
-        </div>
-        {danger && (
-          <form className="danger-zone-form" onSubmit={remove}>
-            <p className="danger-text">
-              Все ваши сообщения, друзья и файлы будут удалены навсегда. Для
-              подтверждения введите пароль:
+          <button
+            type="button"
+            className={`settings-tab-btn ${tab === "notifications" ? "active" : ""}`}
+            onClick={() => setTab("notifications")}
+          >
+            🔔 {tr("Уведомления", "Notifications")}
+          </button>
+          <button
+            type="button"
+            className={`settings-tab-btn ${tab === "account" ? "active" : ""}`}
+            onClick={() => setTab("account")}
+          >
+            ⚙️ {tr("Аккаунт", "Account")}
+          </button>
+        </nav>
+
+        {notice && <p className="success">{notice}</p>}
+        {error && <p className="error">{error}</p>}
+
+        {/* 1. ВКЛАДКА ПРОФИЛЬ */}
+        {tab === "profile" && (
+          <>
+            <div className="appearance-settings">
+              <h3>{tr("Внешний вид и язык", "Appearance and language")}</h3>
+              <label>
+                {tr("Тема", "Theme")}
+                <select
+                  value={theme}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setTheme(value);
+                    localStorage.setItem("vrot_theme", value);
+                    document.documentElement.dataset.theme = value;
+                  }}
+                >
+                  <option value="dark">{tr("Тёмная", "Dark")}</option>
+                  <option value="light">{tr("Светлая", "Light")}</option>
+                </select>
+              </label>
+              <label>
+                {tr("Язык интерфейса", "Interface language")}
+                <select
+                  value={language}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setLanguage(value);
+                    localStorage.setItem("vrot_language", value);
+                    document.documentElement.lang = value;
+                    window.location.reload();
+                  }}
+                >
+                  <option value="ru">Русский</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+            </div>
+
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: "none" }}
+              onChange={(e) => handleFileChosen(e, "avatar")}
+            />
+            <input
+              ref={bannerInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: "none" }}
+              onChange={(e) => handleFileChosen(e, "banner")}
+            />
+
+            <div className="profile-preview">
+              {user.bannerUrl ? (
+                <div
+                  className="profile-banner-clickable"
+                  onClick={() => setBannerAction(true)}
+                  title="Нажмите, чтобы изменить или удалить шапку"
+                >
+                  <img
+                    className="profile-banner"
+                    src={user.bannerUrl}
+                    alt="Шапка профиля"
+                  />
+                  <span className="banner-hover-tag">
+                    Изменить или удалить шапку
+                  </span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="profile-banner fallback add-banner-btn"
+                  onClick={() => bannerInputRef.current?.click()}
+                  title="Добавить шапку профиля"
+                >
+                  + Добавить шапку
+                </button>
+              )}
+
+              {user.avatarUrl ? (
+                <div
+                  className="profile-avatar-clickable"
+                  onClick={() => setAvatarAction(true)}
+                  title="Нажмите, чтобы изменить или удалить аватар"
+                >
+                  <Avatar user={user} />
+                  <span className="avatar-hover-icon">✎</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="profile-avatar-clickable empty-avatar-btn"
+                  onClick={() => avatarInputRef.current?.click()}
+                  title="Добавить аватар"
+                >
+                  <span className="avatar-plus-symbol">+</span>
+                </button>
+              )}
+
+              <div>
+                <strong>
+                  {user.displayName || user.username}
+                  <UserBadges user={user} />
+                </strong>
+                <small>@{user.username}</small>
+                <p>{user.bio || "Добавьте описание профиля"}</p>
+              </div>
+            </div>
+
+            {bannerAction && (
+              <div
+                className="action-menu-backdrop"
+                onClick={() => setBannerAction(false)}
+              >
+                <div
+                  className="action-menu-sheet"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h4>Шапка профиля</h4>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => {
+                      setBannerAction(false);
+                      bannerInputRef.current?.click();
+                    }}
+                  >
+                    🖼️ Загрузить новую шапку
+                  </button>
+                  <button
+                    type="button"
+                    className="button danger"
+                    onClick={() => {
+                      setBannerAction(false);
+                      updateImage("banner", null);
+                    }}
+                  >
+                    🗑️ Удалить шапку
+                  </button>
+                  <button
+                    type="button"
+                    className="button subtle"
+                    onClick={() => setBannerAction(false)}
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {avatarAction && (
+              <div
+                className="action-menu-backdrop"
+                onClick={() => setAvatarAction(false)}
+              >
+                <div
+                  className="action-menu-sheet"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h4>Аватар профиля</h4>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => {
+                      setAvatarAction(false);
+                      avatarInputRef.current?.click();
+                    }}
+                  >
+                    🖼️ Загрузить новый аватар
+                  </button>
+                  <button
+                    type="button"
+                    className="button danger"
+                    onClick={() => {
+                      setAvatarAction(false);
+                      updateImage("avatar", null);
+                    }}
+                  >
+                    🗑️ Удалить аватар
+                  </button>
+                  <button
+                    type="button"
+                    className="button subtle"
+                    onClick={() => setAvatarAction(false)}
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {cropTarget && (
+              <ImageCropperModal
+                imageSrc={cropTarget.src}
+                aspect={cropTarget.aspect}
+                isCircle={cropTarget.isCircle}
+                title={cropTarget.title}
+                onCancel={() => setCropTarget(null)}
+                onSave={(croppedBase64) => {
+                  const kind = cropTarget.kind;
+                  setCropTarget(null);
+                  void updateImage(kind, croppedBase64);
+                }}
+              />
+            )}
+
+            <form className="settings-form" onSubmit={saveProfile}>
+              <label>
+                Имя пользователя
+                <input
+                  name="username"
+                  defaultValue={user.username}
+                  minLength={3}
+                  maxLength={32}
+                  required
+                />
+              </label>
+              <label>
+                Отображаемое имя
+                <input
+                  name="displayName"
+                  defaultValue={user.displayName || user.username}
+                  maxLength={64}
+                  required
+                />
+              </label>
+              <label>
+                Описание
+                <textarea
+                  name="bio"
+                  defaultValue={user.bio || ""}
+                  maxLength={300}
+                  rows={3}
+                />
+              </label>
+              <label>
+                Статус
+                <select name="status" defaultValue={user.status || "online"}>
+                  <option value="online">В сети</option>
+                  <option value="idle">Не активен</option>
+                  <option value="dnd">Не беспокоить</option>
+                  <option value="offline">Невидимый</option>
+                </select>
+              </label>
+              <button className="button" disabled={busy}>
+                Сохранить профиль
+              </button>
+            </form>
+          </>
+        )}
+
+        {/* 2. ВКЛАДКА БЕЗОПАСНОСТЬ */}
+        {tab === "security" && (
+          <div className="security-tab-content">
+            {/* Карточка Email */}
+            <div className="security-card-box">
+              <div className="security-header-row">
+                <span className="security-title">
+                  📧 Электронная почта
+                </span>
+                <span
+                  className={`security-status-badge ${
+                    user.emailVerified ? "verified" : "unverified"
+                  }`}
+                >
+                  {user.emailVerified ? "✅ Подтверждён" : "⚠️ Не подтверждён"}
+                </span>
+              </div>
+              <p className="security-desc">
+                {user.email
+                  ? `Привязан email: ${user.email}. Используется для защиты аккаунта, уведомлений о новых входах и восстановления пароля.`
+                  : "Email не привязан к аккаунту."}
+              </p>
+              {!user.emailVerified && user.email && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={handleResendEmail}
+                >
+                  📨 Отправить письмо с подтверждением
+                </button>
+              )}
+            </div>
+
+            {/* Карточка 2FA TOTP */}
+            <div className="security-card-box">
+              <div className="security-header-row">
+                <span className="security-title">
+                  🔐 Двухфакторная аутентификация (TOTP)
+                </span>
+                <span
+                  className={`security-status-badge ${
+                    user.totpEnabled ? "enabled" : "disabled"
+                  }`}
+                >
+                  {user.totpEnabled ? "✅ Включена" : "⚪ Выключена"}
+                </span>
+              </div>
+              <p className="security-desc">
+                Защитите аккаунт одноразовыми 6-значными кодами из приложений Google
+                Authenticator, Apple Passwords, Aegis или 1Password.
+              </p>
+
+              {!user.totpEnabled && !totpSetup && (
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  onClick={handleStartTotpSetup}
+                >
+                  ⚡ Включить 2FA
+                </button>
+              )}
+
+              {/* Процесс настройки 2FA */}
+              {totpSetup && (
+                <div className="totp-setup-box" style={{ marginTop: 12 }}>
+                  <p style={{ fontSize: 13, color: "var(--muted)" }}>
+                    Отсканируйте QR-код в приложении аутентификатора или введите ключ:
+                  </p>
+                  <div
+                    style={{
+                      background: "#fff",
+                      padding: "12px",
+                      borderRadius: "12px",
+                      display: "inline-block",
+                      margin: "10px 0",
+                    }}
+                  >
+                    <img
+                      src={totpSetup.qrDataUrl}
+                      alt="TOTP QR Code"
+                      style={{ width: 170, height: 170, display: "block" }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                      Секретный ключ:{" "}
+                    </span>
+                    <code
+                      style={{
+                        background: "rgba(255,255,255,0.08)",
+                        padding: "3px 8px",
+                        borderRadius: 6,
+                        userSelect: "all",
+                      }}
+                    >
+                      {totpSetup.secret}
+                    </code>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="6 цифр из приложения"
+                      maxLength={8}
+                      value={totpCodeInput}
+                      onChange={(e) => setTotpCodeInput(e.target.value)}
+                      style={{ width: 190 }}
+                    />
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={busy || totpCodeInput.length < 6}
+                      onClick={handleVerifyTotp}
+                    >
+                      Подтвердить
+                    </button>
+                    <button
+                      type="button"
+                      className="button subtle"
+                      onClick={() => setTotpSetup(null)}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Отображение резервных кодов после успешного включения */}
+              {backupCodes && (
+                <div style={{ marginTop: 16 }}>
+                  <h4 style={{ color: "#57f287", marginBottom: 6 }}>
+                    ⚠️ Сохраните ваши резервные коды!
+                  </h4>
+                  <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+                    Если вы потеряете доступ к приложению аутентификатора, эти
+                    одноразовые коды позволят вам войти в аккаунт:
+                  </p>
+                  <div className="backup-codes-grid">
+                    {backupCodes.map((code, idx) => (
+                      <div key={idx} className="backup-code-pill">
+                        {code}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {user.totpEnabled && !disableTotpModal && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ marginTop: 8 }}
+                  onClick={() => setDisableTotpModal(true)}
+                >
+                  Отключить 2FA
+                </button>
+              )}
+
+              {disableTotpModal && (
+                <form
+                  onSubmit={handleDisableTotp}
+                  style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}
+                >
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Код 2FA или пароль"
+                    value={disableTotpCode}
+                    onChange={(e) => setDisableTotpCode(e.target.value)}
+                    required
+                    style={{ width: 190 }}
+                  />
+                  <button type="submit" className="button danger" disabled={busy}>
+                    Отключить
+                  </button>
+                  <button
+                    type="button"
+                    className="button subtle"
+                    onClick={() => setDisableTotpModal(false)}
+                  >
+                    Отмена
+                  </button>
+                </form>
+              )}
+            </div>
+
+            {/* Карточка Passkeys */}
+            <div className="security-card-box">
+              <div className="security-header-row">
+                <span className="security-title">
+                  🔑 Ключи доступа (Passkeys / WebAuthn)
+                </span>
+              </div>
+              <p className="security-desc">
+                Входите в аккаунт моментально без пароля с помощью Face ID, Touch ID
+                или Windows Hello. Passkeys невозможно перехватить фишингом.
+              </p>
+
+              {passkeys.length > 0 ? (
+                <div style={{ marginBottom: 14 }}>
+                  {passkeys.map((pk) => (
+                    <div key={pk.id} className="passkey-item">
+                      <div className="passkey-info">
+                        <span className="passkey-name">
+                          🛡️ {pk.deviceName || "Passkey"}
+                        </span>
+                        <small style={{ color: "var(--muted)", fontSize: 11 }}>
+                          Добавлен: {new Date(pk.createdAt).toLocaleDateString()}
+                        </small>
+                      </div>
+                      <button
+                        type="button"
+                        className="button danger subtle"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => handleDeletePasskey(pk.id)}
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+                  У вас пока нет привязанных ключей Passkey.
+                </p>
+              )}
+
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={handleAddPasskey}
+              >
+                + Добавить Passkey (Face ID / Touch ID)
+              </button>
+            </div>
+
+            {/* Карточка Активных сеансов */}
+            <div className="security-card-box">
+              <div className="security-header-row">
+                <span className="security-title">
+                  💻 Активные сеансы
+                </span>
+                {sessions.length > 1 && (
+                  <button
+                    type="button"
+                    className="button subtle danger"
+                    style={{ fontSize: 12, padding: "4px 8px" }}
+                    onClick={handleRevokeOtherSessions}
+                  >
+                    Завершить другие сеансы
+                  </button>
+                )}
+              </div>
+              <p className="security-desc">
+                Список всех устройств, где выполнен вход в ваш аккаунт VROT:
+              </p>
+
+              <div className="sessions-list">
+                {sessions.map((sess) => (
+                  <div key={sess.id} className="session-item">
+                    <div className="session-info">
+                      <span className="session-device">
+                        {sess.isCurrent ? "🟢 " : "⚪ "}
+                        {sess.deviceName || "Неизвестное устройство"}
+                        {sess.isCurrent && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              background: "rgba(87, 242, 135, 0.2)",
+                              color: "#57f287",
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              marginLeft: 6,
+                            }}
+                          >
+                            Текущее
+                          </span>
+                        )}
+                      </span>
+                      <small style={{ color: "var(--muted)", fontSize: 11 }}>
+                        IP: {sess.ipAddress} • Активность:{" "}
+                        {new Date(sess.lastSeenAt || sess.createdAt).toLocaleString()}
+                      </small>
+                    </div>
+                    {!sess.isCurrent && (
+                      <button
+                        type="button"
+                        className="button subtle danger"
+                        style={{ padding: "4px 8px", fontSize: 12 }}
+                        onClick={() => handleRevokeSession(sess.id)}
+                      >
+                        Завершить
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Смена пароля */}
+            <div className="security-card-box">
+              <h3 style={{ margin: "0 0 10px 0", fontSize: 15 }}>
+                Изменение пароля
+              </h3>
+              <form className="settings-form two" onSubmit={password}>
+                <label>
+                  Текущий пароль
+                  <input name="currentPassword" type="password" required />
+                </label>
+                <label>
+                  Новый пароль
+                  <input
+                    name="newPassword"
+                    type="password"
+                    minLength={12}
+                    required
+                  />
+                </label>
+                <button className="button" disabled={busy}>
+                  Обновить пароль
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* 3. ВКЛАДКА УВЕДОМЛЕНИЯ */}
+        {tab === "notifications" && (
+          <div className="push-settings-box">
+            <h3>Уведомления на телефон и ПК</h3>
+            <p>
+              Включите уведомления, чтобы получать сообщения от друзей и вызовы в
+              систему Windows или на телефон даже при свёрнутом браузере.
             </p>
-            <label>
-              Пароль для подтверждения
-              <input name="password" type="password" required />
-            </label>
-            <button className="button danger">Удалить аккаунт навсегда</button>
-          </form>
+            <div className="push-status-row">
+              <span>Статус в системе: </span>
+              {notifState === "granted" ? (
+                <strong className="status-granted">✅ Разрешено</strong>
+              ) : notifState === "denied" ? (
+                <strong className="status-denied">
+                  ⚠️ Заблокировано в браузере
+                </strong>
+              ) : (
+                <strong className="status-default">⏳ Не включено</strong>
+              )}
+            </div>
+            {notifState === "granted" ? (
+              <div className="push-btn-row">
+                <button
+                  type="button"
+                  className="button push-test-btn"
+                  disabled={busy}
+                  onClick={handleTestNotification}
+                >
+                  🔔 Отправить тестовое уведомление
+                </button>
+              </div>
+            ) : notifState === "denied" ? (
+              <p className="push-denied-tip">
+                Уведомления для <strong>cz.vrot.fun</strong> были заблокированы в
+                браузере. Чтобы включить: нажмите на иконку замочка/настроек слева от
+                адресной строки и переключите «Уведомления» в «Разрешить», затем
+                обновите страницу.
+              </p>
+            ) : (
+              <button
+                type="button"
+                className="button push-enable-btn"
+                disabled={busy}
+                onClick={handleEnablePush}
+              >
+                🔔 Включить уведомления
+              </button>
+            )}
+
+            <hr className="subtle-hr" />
+            <div className="android-apk-box">
+              <h4>📱 Мобильные приложения</h4>
+              <p>
+                Официальные мобильные приложения VROT для Android и iOS (iPhone /
+                iPad) с поддержкой аудио/видеозвонков, реакций на сообщения и ботов.
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                  marginTop: "12px",
+                }}
+              >
+                <a
+                  href="/download/vrot.apk"
+                  className="button secondary apk-download-btn"
+                  download="vrot.apk"
+                >
+                  📥 Скачать для Android (.apk)
+                </a>
+                <a
+                  href="/download/vrot.ipa"
+                  className="button secondary apk-download-btn"
+                  download="vrot.ipa"
+                >
+                  🍏 Скачать для iPhone (.ipa / eSign)
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. ВКЛАДКА АККАУНТ */}
+        {tab === "account" && (
+          <div className="account-tab-content">
+            <h3>Управление аккаунтом</h3>
+            <div className="account-actions-group">
+              <a
+                className="button secondary"
+                href={apiUrl("/api/account/export")}
+                download
+              >
+                📥 Скачать мои данные
+              </a>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={logout}
+              >
+                🚪 Выйти
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => setDanger(!danger)}
+              >
+                🗑️ Удалить аккаунт
+              </button>
+            </div>
+            {danger && (
+              <form className="danger-zone-form" onSubmit={remove}>
+                <p className="danger-text">
+                  Все ваши сообщения, друзья и файлы будут удалены навсегда. Для
+                  подтверждения введите пароль:
+                </p>
+                <label>
+                  Пароль для подтверждения
+                  <input name="password" type="password" required />
+                </label>
+                <button className="button danger">
+                  Удалить аккаунт навсегда
+                </button>
+              </form>
+            )}
+          </div>
         )}
       </section>
     </div>
