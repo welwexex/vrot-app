@@ -91,15 +91,16 @@ final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDel
     }
 }
 
-final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
+final class AudioPlayerManager: NSObject, ObservableObject {
     static let shared = AudioPlayerManager()
 
     @Published var currentlyPlayingId: String? = nil
     @Published var isPlaying = false
     @Published var progress: Double = 0
 
-    private var player: AVAudioPlayer?
-    private var progressTimer: Timer?
+    private var player: AVPlayer?
+    private var timeObserver: Any?
+    private var finishObserver: NSObjectProtocol?
 
     func togglePlay(attachmentUrl: String, messageId: String) {
         if currentlyPlayingId == messageId && isPlaying {
@@ -113,7 +114,6 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
         let fullUrlString = attachmentUrl.hasPrefix("http") ? attachmentUrl : "https://api.vrot.fun" + attachmentUrl
         guard let url = URL(string: fullUrlString) else { return }
 
-        // Download or stream data
         Task {
             var req = URLRequest(url: url)
             if let cookie = SessionStore.shared.cookie() {
@@ -121,29 +121,52 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
             }
             req.setValue("https://vrot.fun", forHTTPHeaderField: "Origin")
 
-            guard let (data, _) = try? await URLSession.shared.data(for: req) else { return }
-
-            await MainActor.run {
-                do {
-                    let audioSession = AVAudioSession.sharedInstance()
-                    try audioSession.setCategory(.playback, mode: .default)
-                    try audioSession.setActive(true)
-
-                    self.player = try AVAudioPlayer(data: data)
-                    self.player?.delegate = self
-                    self.player?.play()
-                    self.isPlaying = true
-
-                    self.progressTimer?.invalidate()
-                    self.progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                        guard let self = self, let p = self.player else { return }
-                        self.progress = p.duration > 0 ? (p.currentTime / p.duration) : 0
-                    }
-                } catch {
-                    print("Error playing audio: \(error)")
-                    self.isPlaying = false
-                    self.currentlyPlayingId = nil
+            do {
+                let (data, response) = try await URLSession.shared.data(for: req)
+                guard let httpRes = response as? HTTPURLResponse, httpRes.statusCode == 200 else {
+                    await MainActor.run { self.stop() }
+                    return
                 }
+
+                let ext = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("voice_\(messageId).\(ext)")
+                try? data.write(to: tempURL, options: .atomic)
+
+                await MainActor.run {
+                    do {
+                        let audioSession = AVAudioSession.sharedInstance()
+                        try audioSession.setCategory(.playback, mode: .default, options: [.allowBluetooth, .defaultToSpeaker])
+                        try audioSession.setActive(true)
+
+                        let playerItem = AVPlayerItem(url: tempURL)
+                        self.player = AVPlayer(playerItem: playerItem)
+                        self.player?.play()
+                        self.isPlaying = true
+
+                        self.finishObserver = NotificationCenter.default.addObserver(
+                            forName: .AVPlayerItemDidPlayToEndTime,
+                            object: playerItem,
+                            queue: .main
+                        ) { [weak self] _ in
+                            self?.stop()
+                        }
+
+                        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
+                        self.timeObserver = self.player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+                            guard let self = self, let currentItem = self.player?.currentItem else { return }
+                            let duration = currentItem.duration.seconds
+                            if duration > 0 && !duration.isNaN {
+                                self.progress = time.seconds / duration
+                            }
+                        }
+                    } catch {
+                        print("Error starting audio player: \(error)")
+                        self.stop()
+                    }
+                }
+            } catch {
+                print("Failed to download audio data: \(error)")
+                await MainActor.run { self.stop() }
             }
         }
     }
@@ -151,22 +174,22 @@ final class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegat
     func pause() {
         player?.pause()
         isPlaying = false
-        progressTimer?.invalidate()
     }
 
     func stop() {
-        player?.stop()
+        if let timeObserver = timeObserver {
+            player?.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+        if let finishObserver = finishObserver {
+            NotificationCenter.default.removeObserver(finishObserver)
+            self.finishObserver = nil
+        }
+        player?.pause()
         player = nil
         isPlaying = false
         currentlyPlayingId = nil
         progress = 0
-        progressTimer?.invalidate()
-    }
-
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
-            self.stop()
-        }
     }
 }
 
@@ -186,6 +209,13 @@ struct ChatView: View {
     @StateObject private var recorder = AudioRecorderManager.shared
     @StateObject private var player = AudioPlayerManager.shared
 
+    @AppStorage("vrot_chat_wallpaper") private var chatWallpaper = ""
+    @State private var isSelectionMode = false
+    @State private var selectedMessageIds: Set<String> = []
+    @State private var replyingToMessage: [String: Any]? = nil
+    @State private var showForwardSheet = false
+    @State private var availableFriends: [[String: Any]] = []
+
     private var isBot: Bool {
         if let b = friend["isBot"] as? Bool, b { return true }
         if (friend["presence"] as? String) == "bot" || (friend["status"] as? String) == "bot" { return true }
@@ -196,6 +226,26 @@ struct ChatView: View {
     var body: some View {
         ZStack {
             Theme.darkBg.ignoresSafeArea()
+
+            if !chatWallpaper.isEmpty {
+                if chatWallpaper.hasPrefix("data:") {
+                    if let data = Data(base64Encoded: chatWallpaper.components(separatedBy: ",").last ?? ""),
+                       let uiImg = UIImage(data: data) {
+                        Image(uiImage: uiImg)
+                            .resizable()
+                            .scaledToFill()
+                            .ignoresSafeArea()
+                        Color.black.opacity(0.48).ignoresSafeArea()
+                    }
+                } else if chatWallpaper.hasPrefix("http") {
+                    AsyncImage(url: ApiService.resolveMediaURL(chatWallpaper)) { phase in
+                        if let img = phase.image {
+                            img.resizable().scaledToFill().ignoresSafeArea()
+                        }
+                    }
+                    Color.black.opacity(0.48).ignoresSafeArea()
+                }
+            }
 
             VStack(spacing: 0) {
                 chatHeader
@@ -210,6 +260,19 @@ struct ChatView: View {
                     showUserProfile = false
                 })
                 .transition(.opacity)
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    if value.startLocation.x < 50 && value.translation.width > 75 {
+                        onBack()
+                    }
+                }
+        )
+        .sheet(isPresented: $showForwardSheet) {
+            ForwardTargetSheet(friends: availableFriends) { targetFriend in
+                forwardSelectedMessages(to: targetFriend)
             }
         }
         .onAppear(perform: loadMessages)
@@ -311,9 +374,36 @@ struct ChatView: View {
                         let author = msg["author"] as? [String: Any]
                         let isMe = (author?["id"] as? String) != (friend["id"] as? String)
                         let msgId = msg["id"] as? String ?? "\(idx)"
-                        ChatMessageItemView(msg: msg, idx: idx, isMe: isMe, player: player, onReact: { emoji in
-                            toggleReaction(messageId: msgId, emoji: emoji)
-                        })
+                        ChatMessageItemView(
+                            msg: msg,
+                            idx: idx,
+                            isMe: isMe,
+                            isSelectionMode: isSelectionMode,
+                            isSelected: selectedMessageIds.contains(msgId),
+                            player: player,
+                            onReact: { emoji in
+                                toggleReaction(messageId: msgId, emoji: emoji)
+                            },
+                            onReply: {
+                                replyingToMessage = msg
+                            },
+                            onForward: {
+                                selectedMessageIds = [msgId]
+                                showForwardSheet = true
+                            },
+                            onSelectToggle: {
+                                if selectedMessageIds.contains(msgId) {
+                                    selectedMessageIds.remove(msgId)
+                                    if selectedMessageIds.isEmpty { isSelectionMode = false }
+                                } else {
+                                    selectedMessageIds.insert(msgId)
+                                    isSelectionMode = true
+                                }
+                            },
+                            onDelete: {
+                                deleteMessage(msgId: msgId)
+                            }
+                        )
                         .id(idx)
                     }
                 }
@@ -329,7 +419,45 @@ struct ChatView: View {
 
     @ViewBuilder
     private var chatInputSection: some View {
-        if recorder.isRecording {
+        if isSelectionMode {
+            HStack {
+                Button("Отмена") {
+                    isSelectionMode = false
+                    selectedMessageIds.removeAll()
+                }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(Theme.textSecondary)
+
+                Spacer()
+
+                Text("Выбрано: \(selectedMessageIds.count)")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(Theme.textPrimary)
+
+                Spacer()
+
+                Button(action: {
+                    showForwardSheet = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrowshape.turn.up.right.fill")
+                        Text("Переслать")
+                    }
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Theme.accent)
+                    .cornerRadius(12)
+                }
+                .disabled(selectedMessageIds.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.white.opacity(0.08))
+            .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.95))
+            .overlay(Rectangle().frame(height: 1).foregroundColor(Color.white.opacity(0.15)), alignment: .top)
+        } else if recorder.isRecording {
             HStack(spacing: 16) {
                 Circle().fill(Theme.red).frame(width: 12, height: 12)
                 Text(String(format: "Запись: %.1f сек", recorder.recordDuration))
@@ -349,6 +477,38 @@ struct ChatView: View {
             .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
         } else {
             VStack(spacing: 4) {
+              if let rep = replyingToMessage {
+                  let repAuthor = (rep["author"] as? [String: Any])?["displayName"] as? String ?? ((rep["author"] as? [String: Any])?["username"] as? String ?? "Пользователь")
+                  let repText = (rep["content"] as? String ?? "Вложение").prefix(60)
+                  HStack(spacing: 8) {
+                      Rectangle()
+                          .fill(Theme.accent)
+                          .frame(width: 3)
+                          .cornerRadius(1.5)
+                      VStack(alignment: .leading, spacing: 2) {
+                          Text("Ответ на сообщение \(repAuthor)")
+                              .font(.system(size: 11, weight: .bold))
+                              .foregroundColor(Theme.accent)
+                          Text(String(repText))
+                              .font(.system(size: 12))
+                              .foregroundColor(Theme.textPrimary)
+                              .lineLimit(1)
+                      }
+                      Spacer()
+                      Button(action: { replyingToMessage = nil }) {
+                          Image(systemName: "xmark.circle.fill")
+                              .foregroundColor(Theme.textSecondary)
+                              .font(.system(size: 16))
+                      }
+                  }
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 6)
+                  .background(Color.white.opacity(0.06))
+                  .cornerRadius(8)
+                  .padding(.horizontal, 12)
+                  .padding(.top, 4)
+              }
+
               if showBotCommands {
                 botCommandsView
               }
@@ -537,6 +697,14 @@ struct ChatView: View {
             }
         }
 
+        Task {
+            if let allFriends = try? await ApiService.shared.getArray(path: "/api/friends") {
+                await MainActor.run {
+                    self.availableFriends = allFriends.filter { ($0["status"] as? String) == "accepted" }
+                }
+            }
+        }
+
         RealtimeService.shared.onDirectMessage = { newMsg in
             DispatchQueue.main.async {
                 guard let authorId = (newMsg["author"] as? [String: Any])?["id"] as? String,
@@ -585,9 +753,16 @@ struct ChatView: View {
 
     private func sendMessage() {
         guard let id = friend["id"] as? String else { return }
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         inputText = ""
+
+        if let rep = replyingToMessage {
+            let author = (rep["author"] as? [String: Any])?["displayName"] as? String ?? ((rep["author"] as? [String: Any])?["username"] as? String ?? "Пользователь")
+            let preview = (rep["content"] as? String ?? "Вложение").prefix(60)
+            text = "↩️ Ответ для \(author): «\(preview)»\n\(text)"
+            replyingToMessage = nil
+        }
 
         Task {
             do {
@@ -597,6 +772,40 @@ struct ChatView: View {
                 }
             } catch {
                 print("Failed to send message: \(error)")
+            }
+        }
+    }
+
+    private func forwardSelectedMessages(to targetFriend: [String: Any]) {
+        guard let targetId = targetFriend["id"] as? String else { return }
+        let selectedMsgs = messages.filter { msg in
+            let id = msg["id"] as? String ?? ""
+            return selectedMessageIds.contains(id)
+        }
+
+        for msg in selectedMsgs {
+            let author = msg["author"] as? [String: Any]
+            let authorName = author?["displayName"] as? String ?? (author?["username"] as? String ?? "Пользователь")
+            let content = msg["content"] as? String ?? ""
+            let forwardBody = "Переслано от: \(authorName)\n\(content)"
+
+            Task {
+                _ = try? await ApiService.shared.post(
+                    path: "/api/friends/\(targetId)/messages",
+                    body: ["content": forwardBody, "clientMessageId": UUID().uuidString]
+                )
+            }
+        }
+
+        isSelectionMode = false
+        selectedMessageIds.removeAll()
+    }
+
+    private func deleteMessage(msgId: String) {
+        Task {
+            _ = try? await ApiService.shared.request(path: "/api/direct-messages/\(msgId)", method: "DELETE")
+            await MainActor.run {
+                self.messages.removeAll { ($0["id"] as? String) == msgId }
             }
         }
     }
@@ -784,8 +993,14 @@ struct ChatMessageItemView: View {
     let msg: [String: Any]
     let idx: Int
     let isMe: Bool
+    let isSelectionMode: Bool
+    let isSelected: Bool
     @ObservedObject var player: AudioPlayerManager
     let onReact: (String) -> Void
+    let onReply: () -> Void
+    let onForward: () -> Void
+    let onSelectToggle: () -> Void
+    let onDelete: () -> Void
 
     @State private var showReactionsBar = false
 
@@ -798,7 +1013,16 @@ struct ChatMessageItemView: View {
         let inlineKeyboard = replyMarkup?["inline_keyboard"] as? [[[String: Any]]]
         let rawReactions = msg["reactions"] as? [[String: Any]] ?? []
 
-        HStack {
+        HStack(alignment: .bottom, spacing: 8) {
+            if isSelectionMode {
+                Button(action: onSelectToggle) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20))
+                        .foregroundColor(isSelected ? Theme.accent : Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+
             if isMe { Spacer() }
 
             VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
@@ -829,62 +1053,54 @@ struct ChatMessageItemView: View {
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
 
-                HStack(alignment: .bottom, spacing: 6) {
+                VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
+                    if let att = attachment,
+                       let mime = att["mime"] as? String,
+                       mime.hasPrefix("image/"),
+                       let attUrl = att["url"] as? String {
+                        AuthenticatedAttachmentView(path: attUrl, mime: mime, name: att["name"] as? String ?? "Фото")
+                    } else if let att = attachment,
+                       let mime = att["mime"] as? String,
+                       mime.hasPrefix("audio/"),
+                       let attUrl = att["url"] as? String {
+                        VoiceMessageBubbleView(isMe: isMe, msgId: msgId, attUrl: attUrl, player: player)
+                    } else if let att = attachment, let path = att["url"] as? String {
+                        AuthenticatedAttachmentView(path: path, mime: att["mime"] as? String ?? "", name: att["name"] as? String ?? "Файл")
+                    } else if !text.isEmpty {
+                        TextMessageBubbleView(text: text, isMe: isMe)
+                    }
+
+                    if let keyboard = inlineKeyboard {
+                        MessageInlineKeyboardView(inlineKeyboard: keyboard, authorId: authorId, messageId: msgId)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isSelectionMode {
+                        onSelectToggle()
+                    }
+                }
+                .onLongPressGesture {
+                    let impact = UIImpactFeedbackGenerator(style: .medium)
+                    impact.impactOccurred()
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                        showReactionsBar.toggle()
+                    }
+                }
+                .contextMenu {
+                    Button(action: onReply) {
+                        Label("Ответить", systemImage: "arrowshape.turn.up.left")
+                    }
+                    Button(action: onForward) {
+                        Label("Переслать", systemImage: "arrowshape.turn.up.right")
+                    }
+                    Button(action: onSelectToggle) {
+                        Label("Выбрать", systemImage: "checkmark.circle")
+                    }
                     if isMe {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                showReactionsBar.toggle()
-                            }
-                        }) {
-                            Image(systemName: "face.smiling")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color.white.opacity(0.35))
-                                .padding(4)
+                        Button(role: .destructive, action: onDelete) {
+                            Label("Удалить", systemImage: "trash")
                         }
-                        .buttonStyle(.plain)
-                    }
-
-                    VStack(alignment: isMe ? .trailing : .leading, spacing: 6) {
-                        if let att = attachment,
-                           let mime = att["mime"] as? String,
-                           mime.hasPrefix("image/"),
-                           let attUrl = att["url"] as? String {
-                            AuthenticatedAttachmentView(path: attUrl, mime: mime, name: att["name"] as? String ?? "Фото")
-                        } else if let att = attachment,
-                           let mime = att["mime"] as? String,
-                           mime.hasPrefix("audio/"),
-                           let attUrl = att["url"] as? String {
-                            VoiceMessageBubbleView(isMe: isMe, msgId: msgId, attUrl: attUrl, player: player)
-                        } else if let att = attachment, let path = att["url"] as? String {
-                            AuthenticatedAttachmentView(path: path, mime: att["mime"] as? String ?? "", name: att["name"] as? String ?? "Файл")
-                        } else if !text.isEmpty {
-                            TextMessageBubbleView(text: text, isMe: isMe)
-                        }
-
-                        if let keyboard = inlineKeyboard {
-                            MessageInlineKeyboardView(inlineKeyboard: keyboard, authorId: authorId, messageId: msgId)
-                        }
-                    }
-                    .onLongPressGesture {
-                        let impact = UIImpactFeedbackGenerator(style: .medium)
-                        impact.impactOccurred()
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            showReactionsBar.toggle()
-                        }
-                    }
-
-                    if !isMe {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                showReactionsBar.toggle()
-                            }
-                        }) {
-                            Image(systemName: "face.smiling")
-                                .font(.system(size: 13))
-                                .foregroundColor(Color.white.opacity(0.35))
-                                .padding(4)
-                        }
-                        .buttonStyle(.plain)
                     }
                 }
 
@@ -933,6 +1149,63 @@ struct ChatMessageItemView: View {
             }
 
             if !isMe { Spacer() }
+        }
+    }
+}
+
+struct ForwardTargetSheet: View {
+    let friends: [[String: Any]]
+    let onSelect: ([String: Any]) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Theme.darkBg.ignoresSafeArea()
+                if friends.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.2.slash")
+                            .font(.system(size: 36))
+                            .foregroundColor(Theme.textSecondary)
+                        Text("Нет доступных чатов для пересылки")
+                            .font(.system(size: 14))
+                            .foregroundColor(Theme.textSecondary)
+                    }
+                } else {
+                    List(friends, id: \.description) { f in
+                        let name = f["displayName"] as? String ?? (f["username"] as? String ?? "Чат")
+                        Button(action: {
+                            onSelect(f)
+                            dismiss()
+                        }) {
+                            HStack(spacing: 12) {
+                                AvatarBadgeView(avatarUrl: f["avatarUrl"] as? String, name: name, size: 40)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(name)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(Theme.textPrimary)
+                                    Text("@\(f["username"] as? String ?? "")")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Theme.textSecondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrowshape.turn.up.right.fill")
+                                    .foregroundColor(Theme.accent)
+                                    .font(.system(size: 14))
+                            }
+                        }
+                        .listRowBackground(Theme.darkBg)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Переслать в…")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") { dismiss() }
+                }
+            }
         }
     }
 }
