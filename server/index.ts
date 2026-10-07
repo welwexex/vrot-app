@@ -647,24 +647,32 @@ io.on('connection',socket=>{
   });
 });
 
-app.get('/download/vrot.apk',(_req,res)=>{
-  const p1=path.resolve('/app/uploads','vrot.apk'),p2=path.resolve('uploads','vrot.apk');
-  const target=fs.existsSync(p1)?p1:fs.existsSync(p2)?p2:null;
-  if(target){
-    res.setHeader('Content-Type','application/vnd.android.package-archive');
-    res.setHeader('Content-Disposition','attachment; filename="vrot.apk"');
-    return res.sendFile(target);
+app.get(['/download/vrot.apk', '/vrot.apk'], (_req, res) => {
+  const candidates = [
+    path.resolve('/app/uploads', 'vrot.apk'),
+    path.resolve('uploads', 'vrot.apk'),
+    '/var/www/html/vrot.apk'
+  ];
+  const target = candidates.find(p => fs.existsSync(p));
+  if (target) {
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', 'attachment; filename="vrot.apk"');
+    return res.sendFile(path.resolve(target));
   }
   res.status(404).send('APK файл пока формируется на сервере. Пожалуйста, подождите минуту и повторите попытку.');
 });
 
-app.get('/download/vrot.ipa',(_req,res)=>{
-  const p1=path.resolve('/app/uploads','vrot.ipa'),p2=path.resolve('uploads','vrot.ipa');
-  const target=fs.existsSync(p1)?p1:fs.existsSync(p2)?p2:null;
-  if(target){
-    res.setHeader('Content-Type','application/octet-stream');
-    res.setHeader('Content-Disposition','attachment; filename="vrot.ipa"');
-    return res.sendFile(target);
+app.get(['/download/vrot.ipa', '/vrot.ipa'], (_req, res) => {
+  const candidates = [
+    path.resolve('/app/uploads', 'vrot.ipa'),
+    path.resolve('uploads', 'vrot.ipa'),
+    '/var/www/html/vrot.ipa'
+  ];
+  const target = candidates.find(p => fs.existsSync(p));
+  if (target) {
+    res.setHeader('Content-Type', 'application/x-itunes-ipa');
+    res.setHeader('Content-Disposition', 'attachment; filename="vrot.ipa"');
+    return res.sendFile(path.resolve(target));
   }
   res.status(404).send('IPA файл пока формируется на сервере. Пожалуйста, подождите минуту и повторите попытку.');
 });
