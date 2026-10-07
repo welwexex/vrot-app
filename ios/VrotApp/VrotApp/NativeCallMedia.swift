@@ -118,7 +118,9 @@ final class NativeCallMedia: ObservableObject {
 
     private func prepareTracks(video: Bool) {
         let source = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
-        audioTrack = factory.audioTrack(with: source, trackId: "vrot-audio")
+        let aTrack = factory.audioTrack(with: source, trackId: "vrot-audio")
+        aTrack.isEnabled = true
+        self.audioTrack = aTrack
         let videoSource = factory.videoSource()
         self.videoSource = videoSource
         let track = factory.videoTrack(with: videoSource, trackId: "vrot-video")
@@ -149,8 +151,19 @@ final class NativeCallMedia: ObservableObject {
         guard let connection = factory.peerConnection(with: configuration, constraints: constraints, delegate: delegate) else { return nil }
         delegates[socketId] = delegate
         peers[socketId] = connection
-        if let audioTrack { connection.add(audioTrack, streamIds: ["vrot"]) }
-        if let localVideoTrack { connection.add(localVideoTrack, streamIds: ["vrot"]) }
+
+        if let audioTrack = audioTrack {
+            let audioInit = RTCRtpTransceiverInit()
+            audioInit.direction = .sendRecv
+            audioInit.streamIds = ["vrot"]
+            connection.addTransceiver(with: audioTrack, init: audioInit)
+        }
+        if let localVideoTrack = localVideoTrack {
+            let videoInit = RTCRtpTransceiverInit()
+            videoInit.direction = .sendRecv
+            videoInit.streamIds = ["vrot"]
+            connection.addTransceiver(with: localVideoTrack, init: videoInit)
+        }
         return connection
     }
 
@@ -184,7 +197,10 @@ final class NativeCallMedia: ObservableObject {
                     self?.updateRemoteVideo(for: socketId)
                 }
                 if rtcType == .offer {
-                    let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+                    let constraints = RTCMediaConstraints(mandatoryConstraints: [
+                        kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue,
+                        kRTCMediaConstraintsOfferToReceiveVideo: kRTCMediaConstraintsValueTrue
+                    ], optionalConstraints: nil)
                     connection.answer(for: constraints) { [weak self] answer, error in
                         guard let answer else { self?.report(error); return }
                         connection.setLocalDescription(answer) { error in
