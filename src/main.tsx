@@ -748,6 +748,46 @@ function MessageItem({
   );
 }
 
+export function VerifiedSealBadge({
+  size = 15,
+  className = "",
+  title = "Верифицирован",
+}: {
+  size?: number;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <svg
+      className={`verified-seal-icon ${className}`.trim()}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-label={title}
+      style={{
+        display: "inline-block",
+        verticalAlign: "middle",
+        flexShrink: 0,
+      }}
+    >
+      <defs>
+        <linearGradient id="vrot-seal-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#5865f2" />
+          <stop offset="100%" stopColor="#4f46e5" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M10.42 2.38a2.22 2.22 0 0 1 3.16 0l1.24 1.25a2.22 2.22 0 0 0 1.94.63l1.74-.29a2.22 2.22 0 0 1 2.54 1.86l.24 1.74a2.22 2.22 0 0 0 1.2 1.66l1.58.77a2.22 2.22 0 0 1 1.21 2.92l-.67 1.62a2.22 2.22 0 0 0 .19 2.04l1 1.45a2.22 2.22 0 0 1-.95 3.02l-1.57.8a2.22 2.22 0 0 0-1.18 1.67l-.26 1.74a2.22 2.22 0 0 1-2.53 1.88l-1.74-.28a2.22 2.22 0 0 0-1.94.64l-1.24 1.24a2.22 2.22 0 0 1-3.16 0l-1.24-1.24a2.22 2.22 0 0 0-1.94-.64l-1.74.28a2.22 2.22 0 0 1-2.53-1.88l-.26-1.74a2.22 2.22 0 0 0-1.18-1.67l-1.57-.8a2.22 2.22 0 0 1-.95-3.02l1-1.45a2.22 2.22 0 0 0 .19-2.04l-.67-1.62a2.22 2.22 0 0 1 1.21-2.92l1.58-.77a2.22 2.22 0 0 0 1.2-1.66l.24-1.74a2.22 2.22 0 0 1 2.54-1.86l1.74.29a2.22 2.22 0 0 0 1.94-.63l1.24-1.25Z"
+        fill="url(#vrot-seal-grad)"
+      />
+      <path
+        d="M9.8 15.2a.9.9 0 0 1-.64-.26l-2.4-2.4a.9.9 0 1 1 1.28-1.28l1.76 1.76 5.16-5.16a.9.9 0 1 1 1.28 1.28l-5.8 5.8a.9.9 0 0 1-.64.26Z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+}
+
 function BadgeWithTooltip({
   type,
   onOpenFaq,
@@ -791,9 +831,11 @@ function BadgeWithTooltip({
       tabIndex={0}
       aria-label={title}
     >
-      <span className={isVerified ? "verified-badge" : "donator-badge"}>
-        {isVerified ? "✓" : "💎"}
-      </span>
+      {isVerified ? (
+        <VerifiedSealBadge size={16} />
+      ) : (
+        <span className="donator-badge">💎</span>
+      )}
       {open && (
         <span
           className="badge-tooltip"
@@ -802,13 +844,11 @@ function BadgeWithTooltip({
           onClick={(e) => e.stopPropagation()}
         >
           <span className="tooltip-header">
-            <span
-              className={
-                isVerified ? "tooltip-icon verified" : "tooltip-icon donator"
-              }
-            >
-              {isVerified ? "✓" : "💎"}
-            </span>
+            {isVerified ? (
+              <VerifiedSealBadge size={20} />
+            ) : (
+              <span className="tooltip-icon donator">💎</span>
+            )}
             <strong>{title}</strong>
           </span>
           <span className="tooltip-desc">{desc}</span>
@@ -2509,12 +2549,11 @@ function Messenger({
             >
               <strong>{community.name}</strong>
               {community.verified && (
-                <span
+                <VerifiedSealBadge
+                  size={16}
                   className="community-verified"
                   title="Сообщество верифицировано"
-                >
-                  ✓
-                </span>
+                />
               )}
               <span className="menu-chevron">⌄</span>
             </button>
@@ -3491,7 +3530,7 @@ function FriendsPanel({
             </div>
           )}
         </div>
-        <form className="composer direct-composer" onSubmit={send}>
+        <form className={`composer direct-composer ${showBotMenu ? 'has-bot-menu' : ''}`} onSubmit={send}>
           {dmReplyingTo && (
             <div className="composer-reply-bar">
               <div className="composer-reply-info">
@@ -3516,6 +3555,7 @@ function FriendsPanel({
           <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
             <MediaButtons
               fail={fail}
+              hideVoice={isBot}
               onSend={async (attachmentId) => {
                 const rep = dmReplyingTo;
                 setDmReplyingTo(null);
@@ -3533,7 +3573,7 @@ function FriendsPanel({
               <div className="bot-menu-wrapper" style={{ position: "relative" }}>
                 <button
                   type="button"
-                  className="bot-menu-button"
+                  className={`bot-menu-button ${showBotMenu ? "active" : ""}`}
                   onClick={() => setShowBotMenu((v) => !v)}
                   title="Команды бота"
                 >
@@ -3545,53 +3585,68 @@ function FriendsPanel({
                   <span>Меню</span>
                 </button>
                 {showBotMenu && (
-                  <div className="bot-menu-popup">
-                    <div style={{ padding: "4px 8px 8px", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", color: "rgba(255, 255, 255, 0.5)", fontWeight: 700 }}>
-                        Команды бота
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowBotMenu(false)}
-                        style={{ background: "none", border: "none", color: "rgba(255, 255, 255, 0.5)", cursor: "pointer", fontSize: "16px", lineHeight: 1 }}
-                      >
-                        ×
-                      </button>
+                  <>
+                    <div
+                      className="bot-menu-backdrop"
+                      onClick={() => setShowBotMenu(false)}
+                    />
+                    <div className="bot-menu-popup">
+                      <div className="bot-menu-popup-header">
+                        <span className="bot-menu-title">
+                          Команды @{active.username}
+                        </span>
+                        <button
+                          type="button"
+                          className="bot-menu-close-btn"
+                          onClick={() => setShowBotMenu(false)}
+                          aria-label="Закрыть меню"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div className="bot-menu-list">
+                        {botCommands.length > 0 ? (
+                          botCommands.map((cmd) => (
+                            <button
+                              key={cmd.command}
+                              type="button"
+                              className="bot-menu-item"
+                              onClick={async () => {
+                                setShowBotMenu(false);
+                                const input = document.getElementById("direct-message-input") as HTMLInputElement | null;
+                                if (input) input.value = `/${cmd.command}`;
+                                try {
+                                  const m = await api<Message>(`/api/friends/${active.id}/messages`, {
+                                    method: "POST",
+                                    body: JSON.stringify({ content: `/${cmd.command}`, clientMessageId: crypto.randomUUID() }),
+                                  });
+                                  if (input) input.value = "";
+                                  setDm((x) => (x.some((y) => y.id === m.id) ? x : [...x, m]));
+                                } catch (e) {
+                                  fail((e as Error).message);
+                                }
+                              }}
+                            >
+                              <div className="bot-menu-cmd-row">
+                                <span className="bot-menu-cmd-name">/{cmd.command}</span>
+                              </div>
+                              <span className="bot-menu-cmd-desc">{cmd.description}</span>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="bot-menu-empty">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45, marginBottom: "4px" }}>
+                              <circle cx="12" cy="12" r="10"></circle>
+                              <line x1="12" y1="8" x2="12" y2="12"></line>
+                              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                            <span>Команды пока не настроены</span>
+                            <small>Владелец может добавить их через @BotFather (/setcommands)</small>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "6px" }}>
-                      {botCommands.length > 0 ? (
-                        botCommands.map((cmd) => (
-                          <button
-                            key={cmd.command}
-                            type="button"
-                            className="bot-menu-item"
-                            onClick={async () => {
-                              setShowBotMenu(false);
-                              const input = document.getElementById("direct-message-input") as HTMLInputElement | null;
-                              if (input) input.value = `/${cmd.command}`;
-                              try {
-                                const m = await api<Message>(`/api/friends/${active.id}/messages`, {
-                                  method: "POST",
-                                  body: JSON.stringify({ content: `/${cmd.command}`, clientMessageId: crypto.randomUUID() }),
-                                });
-                                if (input) input.value = "";
-                                setDm((x) => (x.some((y) => y.id === m.id) ? x : [...x, m]));
-                              } catch (e) {
-                                fail((e as Error).message);
-                              }
-                            }}
-                          >
-                            <strong>/{cmd.command}</strong>
-                            <span>{cmd.description}</span>
-                          </button>
-                        ))
-                      ) : (
-                        <div style={{ padding: "12px 8px", fontSize: "12px", color: "rgba(255, 255, 255, 0.5)", textAlign: "center" }}>
-                          Команды не настроены
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  </>
                 )}
               </div>
             )}
@@ -4064,9 +4119,11 @@ function VoicePlayer({ file }: { file: Attachment }) {
 function MediaButtons({
   onSend,
   fail,
+  hideVoice = false,
 }: {
   onSend: (attachmentId: string) => Promise<void>;
   fail: (message: string) => void;
+  hideVoice?: boolean;
 }) {
   const [recording, setRecording] = useState(false),
     [busy, setBusy] = useState(false),
@@ -4145,16 +4202,18 @@ function MediaButtons({
           onChange={pick}
         />
       </label>
-      <button
-        type="button"
-        className={recording ? "recording" : ""}
-        disabled={busy}
-        onClick={() => void toggleVoice()}
-        title={recording ? "Остановить запись" : "Голосовое сообщение"}
-        aria-label={recording ? "Остановить запись" : "Голосовое сообщение"}
-      >
-        {recording ? <span className="stop-square" /> : <Icon name="mic" />}
-      </button>
+      {!hideVoice && (
+        <button
+          type="button"
+          className={recording ? "recording" : ""}
+          disabled={busy}
+          onClick={() => void toggleVoice()}
+          title={recording ? "Остановить запись" : "Голосовое сообщение"}
+          aria-label={recording ? "Остановить запись" : "Голосовое сообщение"}
+        >
+          {recording ? <span className="stop-square" /> : <Icon name="mic" />}
+        </button>
+      )}
     </div>
   );
 }
@@ -5237,9 +5296,11 @@ function AdminPanel({
                   <span>
                     {c.name}
                     {c.verified && (
-                      <span className="community-verified" title="Подтверждено">
-                        ✓
-                      </span>
+                      <VerifiedSealBadge
+                        size={16}
+                        className="community-verified"
+                        title="Подтверждено"
+                      />
                     )}
                   </span>
                   <button
