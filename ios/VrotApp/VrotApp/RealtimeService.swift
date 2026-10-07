@@ -13,6 +13,8 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
 
     var onDirectMessage: (([String: Any]) -> Void)?
     var onChannelMessage: (([String: Any]) -> Void)?
+    var onDirectMessageReaction: (([String: Any]) -> Void)?
+    var onChannelMessageReaction: (([String: Any]) -> Void)?
     var onFriendUpdate: (() -> Void)?
 
     func connect() {
@@ -191,8 +193,14 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                     let body = payload["content"] as? String ?? ""
                     CallManager.shared.sendLocalNotification(title: author, body: body)
 
+                case "dm:reaction":
+                    self?.onDirectMessageReaction?(payload)
+
                 case "message:new":
                     self?.onChannelMessage?(payload)
+
+                case "message:reaction":
+                    self?.onChannelMessageReaction?(payload)
 
                 case "friend:updated":
                     self?.onFriendUpdate?()
