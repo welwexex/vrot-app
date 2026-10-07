@@ -359,9 +359,16 @@ html:has(.welcome),body:has(.welcome),#root:has(.welcome){height:auto;min-height
   box-shadow: 0 1px 4px rgba(88, 101, 242, 0.5);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.verified-badge:hover {
-  transform: scale(1.18);
-  box-shadow: 0 2px 8px rgba(88, 101, 242, 0.7);
+.verified-seal-icon {
+  display: inline-block;
+  vertical-align: middle;
+  filter: drop-shadow(0 1px 3px rgba(88, 101, 242, 0.45));
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.badge-wrapper:hover .verified-seal-icon,
+.verified-seal-icon:hover {
+  transform: scale(1.16);
+  filter: drop-shadow(0 2px 7px rgba(88, 101, 242, 0.7));
 }
 .donator-badge {
   display: inline-flex;
@@ -1062,7 +1069,7 @@ html:has(.welcome),body:has(.welcome),#root:has(.welcome){height:auto;min-height
 .community-menu-trigger{display:flex;align-items:center;gap:7px;flex:1;min-width:0;height:100%;border:0;background:transparent;color:#f2f3f7;text-align:left;padding:0;font-weight:700}
 .community-menu-trigger strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .community-menu-trigger:hover{color:#fff}.menu-chevron{margin-left:auto;color:#aeb4c2;font-size:22px}
-.community-verified{display:inline-grid;place-items:center;flex:0 0 18px;width:18px;height:18px;border-radius:50%;background:#4b8fff;color:white;font-size:12px;font-weight:900}
+.community-verified{display:inline-flex;align-items:center;justify-content:center;margin-left:4px;vertical-align:middle}
 .community-menu{z-index:15;display:grid;gap:3px;margin:8px;padding:7px;background:#191d28;border:1px solid #42485a;border-radius:13px;box-shadow:0 14px 32px #0008}
 .community-menu button{display:flex;align-items:center;gap:11px;width:100%;padding:10px;border:0;border-radius:8px;background:transparent;color:#d8deeb;text-align:left;font-size:13px}
 .community-menu button:hover,.community-menu button:focus-visible{background:#35394c;color:#fff}.community-menu button span:last-child{margin-left:auto}
@@ -1557,18 +1564,26 @@ body:has(.app-shell) .app-shell{flex:1 1 auto;min-height:0;width:100%;height:aut
 }
 
 /* Bot Commands Menu */
+.composer.has-bot-menu,
+.composer:has(.bot-menu-popup) {
+  overflow: visible !important;
+  position: relative;
+  z-index: 60;
+}
+
 .bot-menu-wrapper {
   position: relative;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .bot-menu-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
-  border-radius: 12px;
+  padding: 6px 12px;
+  border-radius: 10px;
   background: rgba(88, 101, 242, 0.16);
   border: 1px solid rgba(88, 101, 242, 0.35);
   color: #c7d2fe;
@@ -1581,9 +1596,10 @@ body:has(.app-shell) .app-shell{flex:1 1 auto;min-height:0;width:100%;height:aut
   backdrop-filter: blur(8px);
 }
 
-.bot-menu-button:hover {
-  background: rgba(88, 101, 242, 0.28);
-  border-color: rgba(88, 101, 242, 0.55);
+.bot-menu-button:hover,
+.bot-menu-button.active {
+  background: rgba(88, 101, 242, 0.3);
+  border-color: rgba(88, 101, 242, 0.6);
   color: #fff;
   transform: translateY(-1px);
 }
@@ -1592,21 +1608,29 @@ body:has(.app-shell) .app-shell{flex:1 1 auto;min-height:0;width:100%;height:aut
   transform: translateY(0);
 }
 
+.bot-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 990;
+  background: transparent;
+  cursor: default;
+}
+
 .bot-menu-popup {
   position: absolute;
   bottom: calc(100% + 10px);
   left: 0;
-  width: 290px;
-  max-height: 320px;
+  width: min(320px, calc(100vw - 32px));
+  max-height: 340px;
   overflow-y: auto;
-  background: rgba(18, 22, 36, 0.96);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(18, 22, 34, 0.98);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(88, 101, 242, 0.35);
   border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(88, 101, 242, 0.25);
-  padding: 10px;
-  z-index: 100;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  padding: 8px;
+  z-index: 1000;
   animation: botMenuFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1621,13 +1645,53 @@ body:has(.app-shell) .app-shell{flex:1 1 auto;min-height:0;width:100%;height:aut
   }
 }
 
+.bot-menu-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bot-menu-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 700;
+}
+
+.bot-menu-close-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.bot-menu-close-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.bot-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
 .bot-menu-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 8px 12px;
+  padding: 7px 10px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
   color: #fff;
   cursor: pointer;
@@ -1638,19 +1702,48 @@ body:has(.app-shell) .app-shell{flex:1 1 auto;min-height:0;width:100%;height:aut
 
 .bot-menu-item:hover {
   background: rgba(88, 101, 242, 0.22);
-  border-color: rgba(88, 101, 242, 0.4);
+  border-color: rgba(88, 101, 242, 0.45);
+  transform: translateY(-1px);
 }
 
-.bot-menu-item strong {
-  color: #818cf8;
+.bot-menu-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.bot-menu-cmd-name {
+  color: #a5b4fc;
   font-size: 13px;
+  font-weight: 700;
   font-family: monospace;
 }
 
-.bot-menu-item span {
+.bot-menu-cmd-desc {
   color: rgba(255, 255, 255, 0.72);
-  font-size: 11px;
+  font-size: 11.5px;
   margin-top: 2px;
+  line-height: 1.3;
 }
+
+.bot-menu-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 10px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  text-align: center;
+  gap: 4px;
+}
+
+.bot-menu-empty small {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 
 
