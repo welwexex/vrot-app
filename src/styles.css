@@ -1745,5 +1745,299 @@ body:has(.app-shell) .app-shell{flex:1 1 auto;min-height:0;width:100%;height:aut
   line-height: 1.35;
 }
 
+/* ==========================================================================
+   LIQUID GLASS (iOS 26 Style System) & ADVANCED SECURITY CONTROLS
+   ========================================================================== */
+
+:root {
+  --glass-surface: rgba(18, 24, 38, 0.72);
+  --glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 35%, rgba(255, 255, 255, 0.02) 100%);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  --glass-dock-bg: rgba(16, 21, 33, 0.82);
+}
+
+[data-theme="light"] {
+  --glass-surface: rgba(255, 255, 255, 0.78);
+  --glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.2) 35%, rgba(255, 255, 255, 0.05) 100%);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-shadow: 0 18px 45px rgba(0, 0, 0, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.9);
+  --glass-dock-bg: rgba(245, 247, 252, 0.88);
+}
+
+/* Base Liquid Glass container */
+.liquid-glass,
+.settings-modal,
+.auth-card {
+  background: var(--glass-surface) !important;
+  backdrop-filter: blur(28px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--glass-shadow) !important;
+  position: relative;
+}
+
+.liquid-glass::before,
+.settings-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-specular);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+/* Floating Bottom Navigation Dock */
+.liquid-glass-dock {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 99px;
+  background: var(--glass-dock-bg);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4), inset 0 1px 1.5px rgba(255, 255, 255, 0.3);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-dock-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.liquid-dock-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.liquid-dock-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.4), rgba(88, 101, 242, 0.15));
+  border: 1px solid rgba(88, 101, 242, 0.5);
+  box-shadow: 0 4px 14px rgba(88, 101, 242, 0.35);
+}
+
+/* Accessibility: Fallback for reduced transparency */
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-glass,
+  .settings-modal,
+  .auth-card,
+  .liquid-glass-dock {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: #141b25 !important;
+  }
+}
+
+/* Settings Tabs Bar */
+.settings-tabs-nav {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--glass-border);
+  margin-bottom: 22px;
+  padding-bottom: 4px;
+  overflow-x: auto;
+}
+
+.settings-tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px 8px 0 0;
+  transition: all 0.15s ease;
+}
+
+.settings-tab-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-tab-btn.active {
+  color: #fff;
+  border-bottom-color: var(--accent);
+  background: rgba(88, 101, 242, 0.12);
+}
+
+/* Security Cards & UI */
+.security-card-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color 0.2s ease;
+}
+
+.security-card-box:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.security-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.security-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.security-status-badge {
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.security-status-badge.verified,
+.security-status-badge.enabled {
+  background: rgba(87, 242, 135, 0.15);
+  color: #57f287;
+  border: 1px solid rgba(87, 242, 135, 0.35);
+}
+
+.security-status-badge.unverified,
+.security-status-badge.disabled {
+  background: rgba(237, 66, 69, 0.15);
+  color: #ed4245;
+  border: 1px solid rgba(237, 66, 69, 0.35);
+}
+
+.security-desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 6px 0 14px;
+}
+
+.session-item,
+.passkey-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.session-info,
+.passkey-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.session-device,
+.passkey-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-meta,
+.passkey-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.current-badge {
+  background: rgba(88, 101, 242, 0.25);
+  border: 1px solid rgba(88, 101, 242, 0.6);
+  color: #a5b4fc;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.backup-codes-container {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 12px 0;
+}
+
+.backup-codes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.backup-code-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.passkey-login-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid var(--glass-border) !important;
+  color: #fff !important;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.passkey-login-btn:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
 
 
