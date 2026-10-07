@@ -764,21 +764,16 @@ export function VerifiedSealBadge({
       height={size}
       viewBox="0 0 24 24"
       aria-label={title}
+      shapeRendering="geometricPrecision"
       style={{
         display: "inline-block",
         verticalAlign: "middle",
         flexShrink: 0,
       }}
     >
-      <defs>
-        <linearGradient id="vrot-seal-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#5865f2" />
-          <stop offset="100%" stopColor="#4f46e5" />
-        </linearGradient>
-      </defs>
       <path
         d="M10.42 2.38a2.22 2.22 0 0 1 3.16 0l1.24 1.25a2.22 2.22 0 0 0 1.94.63l1.74-.29a2.22 2.22 0 0 1 2.54 1.86l.24 1.74a2.22 2.22 0 0 0 1.2 1.66l1.58.77a2.22 2.22 0 0 1 1.21 2.92l-.67 1.62a2.22 2.22 0 0 0 .19 2.04l1 1.45a2.22 2.22 0 0 1-.95 3.02l-1.57.8a2.22 2.22 0 0 0-1.18 1.67l-.26 1.74a2.22 2.22 0 0 1-2.53 1.88l-1.74-.28a2.22 2.22 0 0 0-1.94.64l-1.24 1.24a2.22 2.22 0 0 1-3.16 0l-1.24-1.24a2.22 2.22 0 0 0-1.94-.64l-1.74.28a2.22 2.22 0 0 1-2.53-1.88l-.26-1.74a2.22 2.22 0 0 0-1.18-1.67l-1.57-.8a2.22 2.22 0 0 1-.95-3.02l1-1.45a2.22 2.22 0 0 0 .19-2.04l-.67-1.62a2.22 2.22 0 0 1 1.21-2.92l1.58-.77a2.22 2.22 0 0 0 1.2-1.66l.24-1.74a2.22 2.22 0 0 1 2.54-1.86l1.74.29a2.22 2.22 0 0 0 1.94-.63l1.24-1.25Z"
-        fill="url(#vrot-seal-grad)"
+        fill="#5865f2"
       />
       <path
         d="M9.8 15.2a.9.9 0 0 1-.64-.26l-2.4-2.4a.9.9 0 1 1 1.28-1.28l1.76 1.76 5.16-5.16a.9.9 0 1 1 1.28 1.28l-5.8 5.8a.9.9 0 0 1-.64.26Z"
@@ -4156,9 +4151,14 @@ function MediaButtons({
       const stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
         }),
-        mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        mime = MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : MediaRecorder.isTypeSupported("audio/aac")
+          ? "audio/aac"
+          : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
           : "audio/webm",
+        ext = mime.includes("mp4") ? "m4a" : mime.includes("aac") ? "aac" : "webm",
         r = new MediaRecorder(stream, { mimeType: mime });
       voiceStream.current = stream;
       chunks.current = [];
@@ -4168,8 +4168,8 @@ function MediaButtons({
       r.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         voiceStream.current = null;
-        const file = new File(chunks.current, `voice-${Date.now()}.webm`, {
-          type: "audio/webm",
+        const file = new File(chunks.current, `voice-${Date.now()}.${ext}`, {
+          type: mime,
         });
         void send(file);
       };
