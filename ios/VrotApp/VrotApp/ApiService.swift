@@ -43,6 +43,20 @@ final class SessionStore {
         return nil
     }
 
+    var token: String? {
+        guard let c = cookie() else { return nil }
+        if c.contains("vrot_session=") {
+            let parts = c.components(separatedBy: ";")
+            for p in parts {
+                let trimmed = p.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("vrot_session=") {
+                    return String(trimmed.dropFirst("vrot_session=".count))
+                }
+            }
+        }
+        return c
+    }
+
     func clear() {
         SecItemDelete(query as CFDictionary)
         UserDefaults.standard.removeObject(forKey: key)
@@ -139,6 +153,10 @@ final class ApiService: NSObject {
         return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
     }
 
+    func get(path: String) async throws -> [String: Any] {
+        return try await getObject(path: path)
+    }
+
     func getObject(path: String) async throws -> [String: Any] {
         return (try await request(path: path, method: "GET")) as? [String: Any] ?? [:]
     }
@@ -178,5 +196,16 @@ final class ApiService: NSObject {
             throw APIError.serverError(http.statusCode, "Ошибка загрузки файла")
         }
         return (try? JSONSerialization.jsonObject(with: respData) as? [String: Any]) ?? [:]
+    }
+
+    static func resolveMediaURL(_ raw: String?) -> URL? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
+            return URL(string: raw)
+        }
+        let clean = raw.hasPrefix("/") ? raw : "/" + raw
+        return URL(string: ApiService.shared.baseURL + clean)
     }
 }

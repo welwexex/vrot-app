@@ -13,6 +13,8 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
 
     var onDirectMessage: (([String: Any]) -> Void)?
     var onChannelMessage: (([String: Any]) -> Void)?
+    var onDirectMessageReaction: (([String: Any]) -> Void)?
+    var onChannelMessageReaction: (([String: Any]) -> Void)?
     var onFriendUpdate: (() -> Void)?
 
     func connect() {
@@ -144,29 +146,45 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                     CallManager.shared.reportIncomingCall(friendId: friendId, callerName: name, avatarUrl: fromObj["avatarUrl"] as? String, isVideo: isVideo, callId: callId, expiresAt: expiresAt)
 
                 case "call:peer-joined":
+                    CallManager.shared.cancelTimeout()
+                    CallManager.shared.state.answered = true
                     CallManager.shared.state.status = "Подключение медиа…"
+                    if let userObj = payload["user"] as? [String: Any],
+                       let socketId = payload["socketId"] as? String {
+                        NativeCallMedia.shared.peerJoined(socketId: socketId, user: userObj)
+                    }
 
                 case "call:signal":
+                    CallManager.shared.cancelTimeout()
+                    CallManager.shared.state.answered = true
                     NativeCallMedia.shared.receiveSignal(payload)
+
+                case "call:answered":
+                    CallManager.shared.cancelTimeout()
+                    CallManager.shared.state.answered = true
+                    CallManager.shared.state.status = "Подключение медиа…"
 
                 case "call:ended":
                     let callId = payload["callId"] as? String ?? ""
                     let reason = payload["reason"] as? String ?? ""
                     let calleeId = payload["calleeId"] as? String ?? ""
                     let state = CallManager.shared.state
-                    if reason != "answered" && state.active && (state.callId == callId || (!state.incoming && state.targetId == calleeId)) {
+                    if reason == "answered" {
+                        CallManager.shared.cancelTimeout()
+                        CallManager.shared.state.answered = true
+                        CallManager.shared.state.status = "Подключение медиа…"
+                    } else if state.active && !state.answered && NativeCallMedia.shared.connectedPeers == 0 && (state.callId == callId || (!state.incoming && state.targetId == calleeId)) {
                         CallManager.shared.state.status = reason == "timeout" ? "Время ожидания истекло" : "Вызов завершён"
                         CallManager.shared.endCall()
-                    } else if reason == "answered" && state.active && state.targetId == calleeId {
-                        CallManager.shared.cancelTimeout()
-                        CallManager.shared.state.status = "Подключение медиа…"
                     }
 
                 case "call:peer-left", "call:cancelled":
                     if let socketId = payload["socketId"] as? String { NativeCallMedia.shared.peerLeft(socketId) }
                     if CallManager.shared.state.kind == "friend" {
+                        let cId = payload["callId"] as? String ?? ""
                         CallManager.shared.state.status = "Собеседник завершил вызов"
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        CallManager.shared.reportCallerCancelled(callId: cId)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                             CallManager.shared.endCall()
                         }
                     }
@@ -177,8 +195,14 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                     let body = payload["content"] as? String ?? ""
                     CallManager.shared.sendLocalNotification(title: author, body: body)
 
+                case "dm:reaction":
+                    self?.onDirectMessageReaction?(payload)
+
                 case "message:new":
                     self?.onChannelMessage?(payload)
+
+                case "message:reaction":
+                    self?.onChannelMessageReaction?(payload)
 
                 case "friend:updated":
                     self?.onFriendUpdate?()

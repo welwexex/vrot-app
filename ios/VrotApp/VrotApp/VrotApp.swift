@@ -2,16 +2,51 @@ import SwiftUI
 import UIKit
 import PushKit
 
-final class VrotAppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate {
+import UserNotifications
+
+final class VrotAppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate, UNUserNotificationCenterDelegate {
     private var voipRegistry: PKPushRegistry?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            if granted {
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                }
+            }
+        }
+
         let registry = PKPushRegistry(queue: .main)
         registry.delegate = self
         registry.desiredPushTypes = [.voIP]
         voipRegistry = registry
         application.registerForRemoteNotifications()
         return true
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound, .badge])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        completionHandler()
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        if let kind = userInfo["kind"] as? String, kind == "call" {
+            let friendId = userInfo["friendId"] as? String ?? ""
+            let aps = userInfo["aps"] as? [String: Any]
+            let alert = aps?["alert"] as? [String: Any]
+            let title = alert?["title"] as? String ?? ""
+            let callerName = title.replacingOccurrences(of: "Входящий вызов: ", with: "").isEmpty ? "Собеседник" : title.replacingOccurrences(of: "Входящий вызов: ", with: "")
+            let callId = userInfo["callId"] as? String ?? UUID().uuidString
+            let video = (userInfo["video"] as? Bool) ?? false
+            let expiresAt = (userInfo["expiresAt"] as? NSNumber)?.doubleValue ?? (Date().timeIntervalSince1970 * 1000 + 15000)
+            CallManager.shared.reportIncomingCall(friendId: friendId, callerName: callerName, isVideo: video, callId: callId, expiresAt: expiresAt)
+        }
+        completionHandler(.newData)
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

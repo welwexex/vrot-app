@@ -1,5 +1,21 @@
 import SwiftUI
 import AVFoundation
+import ReplayKit
+
+struct SystemBroadcastPickerView: UIViewRepresentable {
+    func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
+        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        picker.showsMicrophoneButton = false
+        for subview in picker.subviews {
+            if let button = subview as? UIButton {
+                button.tintColor = .white
+            }
+        }
+        return picker
+    }
+
+    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+}
 
 struct CameraPreviewView: UIViewRepresentable {
     @Binding var isCameraActive: Bool
@@ -32,7 +48,6 @@ final class CameraPreviewUIView: UIView {
         let session = AVCaptureSession()
         session.sessionPreset = .high
 
-        // Use front-facing camera for video calls
         let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) ?? AVCaptureDevice.default(for: .video)
         guard let camera = device, let input = try? AVCaptureDeviceInput(device: camera) else { return }
 
@@ -73,7 +88,38 @@ struct ActiveCallOverlay: View {
     @ObservedObject var callManager = CallManager.shared
     @ObservedObject var media = NativeCallMedia.shared
     @State private var isCameraEnabled = true
+    @State private var isSpeakerOn = true
     let onMinimize: () -> Void
+
+    private var allParticipantsCount: Int {
+        max(1, media.participants.count + 1)
+    }
+
+    private var callerDisplayName: String {
+        if !callManager.state.targetName.isEmpty {
+            return callManager.state.targetName
+        }
+        if let first = media.participants.first {
+            return first.name
+        }
+        return "Собеседник"
+    }
+
+    private func toggleSpeaker() {
+        isSpeakerOn.toggle()
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if isSpeakerOn {
+                try session.overrideOutputAudioPort(.speaker)
+                UIDevice.current.isProximityMonitoringEnabled = false
+            } else {
+                try session.overrideOutputAudioPort(.none)
+                UIDevice.current.isProximityMonitoringEnabled = true
+            }
+        } catch {
+            print("Failed to toggle speaker port: \(error)")
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -86,7 +132,7 @@ struct ActiveCallOverlay: View {
                     .ignoresSafeArea()
             }
 
-            VStack(spacing: 30) {
+            VStack(spacing: 24) {
                 // Header caller info
                 VStack(spacing: 8) {
                     Button(action: onMinimize) {
@@ -96,7 +142,8 @@ struct ActiveCallOverlay: View {
                     .modifier(VrotGlassBar())
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
-                    Text(callManager.state.targetName.isEmpty ? "Собеседник" : callManager.state.targetName)
+
+                    Text(callerDisplayName)
                         .font(.system(size: 26, weight: .bold))
                         .foregroundColor(Theme.textPrimary)
                         .shadow(radius: 4)
@@ -114,25 +161,85 @@ struct ActiveCallOverlay: View {
                     .padding(.vertical, 6)
                     .background(Color.black.opacity(0.4))
                     .cornerRadius(12)
+
                     if !media.errorMessage.isEmpty {
                         Text(media.errorMessage)
                             .font(.caption)
                             .foregroundColor(Theme.red)
                     }
-                    if media.connectedPeers > 0 {
-                        Text("Участников в звонке: \(media.connectedPeers + 1)")
+
+                    if media.participants.count > 0 {
+                        Text("В звонке: \(allParticipantsCount)")
                             .font(.caption)
                             .foregroundColor(Theme.textSecondary)
                     }
                 }
-                .padding(.top, 60)
+                .padding(.top, 50)
 
                 Spacer()
 
+                // Center area: If video is off, show avatars
                 if media.remoteVideos.isEmpty {
-                    AvatarBadgeView(avatarUrl: callManager.state.avatarUrl, name: callManager.state.targetName, size: 120)
+                    if media.participants.count <= 1 {
+                        // Single Person Call
+                        VStack(spacing: 16) {
+                            ZStack {
+                                Circle()
+                                    .stroke(Theme.accent.opacity(callManager.state.status == "В звонке" ? 0.6 : 0.3), lineWidth: 3)
+                                    .frame(width: 144, height: 144)
+                                AvatarBadgeView(
+                                    avatarUrl: callManager.state.avatarUrl ?? media.participants.first?.avatarUrl,
+                                    name: callerDisplayName,
+                                    size: 130
+                                )
+                            }
+                            Text(callerDisplayName)
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(Theme.textPrimary)
+                        }
+                    } else {
+                        // Multiple Participants (Group Call)
+                        VStack(spacing: 12) {
+                            Text("Участники (\(allParticipantsCount))")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(Theme.textSecondary)
+
+                            ScrollView(.vertical, showsIndicators: false) {
+                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                    ForEach(media.participants) { p in
+                                        VStack(spacing: 8) {
+                                            AvatarBadgeView(avatarUrl: p.avatarUrl, name: p.name, size: 64)
+                                            Text(p.name)
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundColor(Theme.textPrimary)
+                                                .lineLimit(1)
+                                            HStack(spacing: 4) {
+                                                Circle()
+                                                    .fill(Theme.green)
+                                                    .frame(width: 6, height: 6)
+                                                Text("В сети")
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(Theme.textSecondary)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(Theme.glassCard)
+                                        .cornerRadius(16)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 16)
+                                                .stroke(Theme.glassBorder, lineWidth: 1)
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                            .frame(maxHeight: 260)
+                        }
+                    }
                 }
 
+                // Local video preview
                 if isCameraEnabled, let localTrack = media.localVideoTrack, callManager.state.isVideo {
                     RTCVideoSurface(track: localTrack)
                         .frame(width: 104, height: 142)
@@ -162,19 +269,31 @@ struct ActiveCallOverlay: View {
                 Spacer()
 
                 // Call Controls
-                HStack(spacing: 30) {
+                HStack(spacing: 16) {
                     // Mute Audio
                     Button(action: {
                         callManager.state.isMuted.toggle()
                         media.setMuted(callManager.state.isMuted)
                     }) {
                         Image(systemName: callManager.state.isMuted ? "mic.slash.fill" : "mic.fill")
-                            .font(.system(size: 24))
+                            .font(.system(size: 20))
                             .foregroundColor(Theme.textPrimary)
-                            .frame(width: 64, height: 64)
+                            .frame(width: 54, height: 54)
                             .background(callManager.state.isMuted ? Theme.red : Theme.card.opacity(0.85))
                             .clipShape(Circle())
                     }
+                    .accessibilityLabel(callManager.state.isMuted ? "Включить микрофон" : "Выключить микрофон")
+
+                    // Toggle Speaker / Earpiece with proximity monitoring
+                    Button(action: toggleSpeaker) {
+                        Image(systemName: isSpeakerOn ? "speaker.wave.3.fill" : "ear.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(Theme.textPrimary)
+                            .frame(width: 54, height: 54)
+                            .background(isSpeakerOn ? Theme.accent.opacity(0.85) : Theme.card.opacity(0.85))
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel(isSpeakerOn ? "Громкая связь (динамик)" : "Разговорный динамик (ухо)")
 
                     // Toggle Camera (if video call)
                     if callManager.state.isVideo {
@@ -183,44 +302,58 @@ struct ActiveCallOverlay: View {
                             media.setVideoEnabled(isCameraEnabled)
                         }) {
                             Image(systemName: isCameraEnabled ? "video.fill" : "video.slash.fill")
-                                .font(.system(size: 22))
+                                .font(.system(size: 19))
                                 .foregroundColor(Theme.textPrimary)
-                                .frame(width: 64, height: 64)
+                                .frame(width: 54, height: 54)
                                 .background(Theme.card.opacity(0.85))
                                 .clipShape(Circle())
                         }
                     }
 
+                    // Live Screen Sharing via WebRTC
                     Button(action: {
-                        if media.isScreenSharing { media.stopScreenShare() }
-                        else { media.startScreenShare() }
+                        callManager.toggleScreenShare()
                     }) {
-                        Image(systemName: media.isScreenSharing ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle")
-                            .font(.system(size: 22))
-                            .foregroundColor(.white)
-                            .frame(width: 64, height: 64)
-                            .background(media.isScreenSharing ? Theme.accent : Theme.card.opacity(0.85))
-                            .clipShape(Circle())
+                        Image(systemName: callManager.isScreenSharing ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle")
+                            .font(.system(size: 19))
+                            .foregroundColor(callManager.isScreenSharing ? Theme.accent : .white)
                     }
-                    .accessibilityLabel(media.isScreenSharing ? "Остановить показ экрана VROT" : "Показать экран VROT")
+                    .frame(width: 54, height: 54)
+                    .background(callManager.isScreenSharing ? Theme.accent.opacity(0.25) : Theme.card.opacity(0.85))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(callManager.isScreenSharing ? Theme.accent : Color.white.opacity(0.2), lineWidth: 1))
+                    .accessibilityLabel("Демонстрация экрана")
 
                     // End Call
                     Button(action: {
                         callManager.endCall()
                     }) {
                         Image(systemName: "phone.down.fill")
-                            .font(.system(size: 28))
+                            .font(.system(size: 24))
                             .foregroundColor(Theme.textPrimary)
-                            .frame(width: 72, height: 72)
+                            .frame(width: 62, height: 62)
                             .background(Theme.red)
                             .clipShape(Circle())
                     }
+                    .accessibilityLabel("Завершить вызов")
                 }
-                Text("Показ экрана доступен внутри VROT")
-                    .font(.caption2)
-                    .foregroundColor(Theme.textSecondary)
-                .padding(.bottom, 50)
+
+                HStack(spacing: 8) {
+                    Text(isSpeakerOn ? "Динамик: Громкая связь" : "Динамик: В ухе (экран гаснет)")
+                        .font(.caption2)
+                        .foregroundColor(Theme.textSecondary)
+                }
+                .padding(.bottom, 36)
             }
+        }
+        .onAppear {
+            isSpeakerOn = true
+            let session = AVAudioSession.sharedInstance()
+            try? session.overrideOutputAudioPort(.speaker)
+            UIDevice.current.isProximityMonitoringEnabled = false
+        }
+        .onDisappear {
+            UIDevice.current.isProximityMonitoringEnabled = false
         }
     }
 }

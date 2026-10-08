@@ -31,7 +31,7 @@ struct CommunityAvatarView: View {
         .clipShape(RoundedRectangle(cornerRadius: size / 4))
         .task(id: url) {
             image = nil
-            guard let url, let imageUrl = URL(string: ApiService.shared.baseURL + url) else { return }
+            guard let url, let imageUrl = ApiService.resolveMediaURL(url) else { return }
             var request = URLRequest(url: imageUrl)
             if let cookie = SessionStore.shared.cookie() { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
             if let (data, _) = try? await URLSession.shared.data(for: request) { image = UIImage(data: data) }

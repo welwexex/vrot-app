@@ -10,6 +10,12 @@ struct RemoteCallVideo: Identifiable {
     let track: RTCVideoTrack
 }
 
+struct CallParticipant: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let avatarUrl: String?
+}
+
 struct RTCVideoSurface: UIViewRepresentable {
     let track: RTCVideoTrack
     final class Coordinator {
@@ -37,6 +43,7 @@ final class NativeCallMedia: ObservableObject {
     static let shared = NativeCallMedia()
 
     @Published private(set) var remoteVideos: [RemoteCallVideo] = []
+    @Published private(set) var participants: [CallParticipant] = []
     @Published private(set) var localVideoTrack: RTCVideoTrack?
     @Published private(set) var connectedPeers = 0
     @Published private(set) var errorMessage = ""
@@ -86,9 +93,20 @@ final class NativeCallMedia: ObservableObject {
                             self.errorMessage = response["error"] as? String ?? "Не удалось войти в звонок"
                             return
                         }
+                        self.participants.removeAll()
                         for peer in response["peers"] as? [[String: Any]] ?? [] {
                             guard let socketId = peer["socketId"] as? String else { continue }
-                            self.createOffer(to: socketId, user: peer["user"] as? [String: Any] ?? [:])
+                            let user = peer["user"] as? [String: Any] ?? [:]
+                            let name = user["displayName"] as? String ?? (user["username"] as? String ?? "Участник")
+                            let avatar = user["avatarUrl"] as? String
+                            self.participants.append(CallParticipant(id: socketId, name: name, avatarUrl: avatar))
+                            self.createOffer(to: socketId, user: user)
+                        }
+                        if !self.participants.isEmpty {
+                            self.connectedPeers = self.participants.count
+                            CallManager.shared.cancelTimeout()
+                            CallManager.shared.state.answered = true
+                            CallManager.shared.state.status = "В звонке"
                         }
                     }
                 }
@@ -100,7 +118,9 @@ final class NativeCallMedia: ObservableObject {
 
     private func prepareTracks(video: Bool) {
         let source = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
-        audioTrack = factory.audioTrack(with: source, trackId: "vrot-audio")
+        let aTrack = factory.audioTrack(with: source, trackId: "vrot-audio")
+        aTrack.isEnabled = true
+        self.audioTrack = aTrack
         let videoSource = factory.videoSource()
         self.videoSource = videoSource
         let track = factory.videoTrack(with: videoSource, trackId: "vrot-video")
@@ -131,8 +151,19 @@ final class NativeCallMedia: ObservableObject {
         guard let connection = factory.peerConnection(with: configuration, constraints: constraints, delegate: delegate) else { return nil }
         delegates[socketId] = delegate
         peers[socketId] = connection
-        if let audioTrack { connection.add(audioTrack, streamIds: ["vrot"]) }
-        if let localVideoTrack { connection.add(localVideoTrack, streamIds: ["vrot"]) }
+
+        if let audioTrack = audioTrack {
+            let audioInit = RTCRtpTransceiverInit()
+            audioInit.direction = .sendRecv
+            audioInit.streamIds = ["vrot"]
+            connection.addTransceiver(with: audioTrack, init: audioInit)
+        }
+        if let localVideoTrack = localVideoTrack {
+            let videoInit = RTCRtpTransceiverInit()
+            videoInit.direction = .sendRecv
+            videoInit.streamIds = ["vrot"]
+            connection.addTransceiver(with: localVideoTrack, init: videoInit)
+        }
         return connection
     }
 
@@ -166,7 +197,10 @@ final class NativeCallMedia: ObservableObject {
                     self?.updateRemoteVideo(for: socketId)
                 }
                 if rtcType == .offer {
-                    let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+                    let constraints = RTCMediaConstraints(mandatoryConstraints: [
+                        kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue,
+                        kRTCMediaConstraintsOfferToReceiveVideo: kRTCMediaConstraintsValueTrue
+                    ], optionalConstraints: nil)
                     connection.answer(for: constraints) { [weak self] answer, error in
                         guard let answer else { self?.report(error); return }
                         connection.setLocalDescription(answer) { error in
@@ -216,6 +250,7 @@ final class NativeCallMedia: ObservableObject {
                 self.connectedPeers = self.peers.values.filter { $0.iceConnectionState == .connected || $0.iceConnectionState == .completed }.count
                 self.updateRemoteVideo(for: id)
                 CallManager.shared.cancelTimeout()
+                CallManager.shared.state.answered = true
                 CallManager.shared.state.status = "В звонке"
             } else if state == .failed {
                 self.errorMessage = "Не удалось установить медиасоединение"
@@ -223,12 +258,26 @@ final class NativeCallMedia: ObservableObject {
         }
     }
 
+    func peerJoined(socketId: String, user: [String: Any]) {
+        guard active else { return }
+        let name = user["displayName"] as? String ?? (user["username"] as? String ?? "Участник")
+        let avatar = user["avatarUrl"] as? String
+        if !participants.contains(where: { $0.id == socketId }) {
+            participants.append(CallParticipant(id: socketId, name: name, avatarUrl: avatar))
+        }
+        connectedPeers = max(connectedPeers, participants.count)
+        CallManager.shared.cancelTimeout()
+        CallManager.shared.state.answered = true
+        CallManager.shared.state.status = "В звонке"
+    }
+
     func peerLeft(_ id: String) {
         peers.removeValue(forKey: id)?.close()
         delegates.removeValue(forKey: id)
         pendingCandidates.removeValue(forKey: id)
         remoteVideos.removeAll { $0.id == id }
-        connectedPeers = max(0, connectedPeers - 1)
+        participants.removeAll { $0.id == id }
+        connectedPeers = max(0, participants.count)
     }
 
     func setMuted(_ muted: Bool) { audioTrack?.isEnabled = !muted }
@@ -286,6 +335,7 @@ final class NativeCallMedia: ObservableObject {
         localVideoTrack = nil
         audioTrack = nil
         remoteVideos = []
+        participants = []
         connectedPeers = 0
         target = nil
     }
