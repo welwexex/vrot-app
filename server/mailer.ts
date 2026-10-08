@@ -19,13 +19,13 @@ const mailer = smtpHost
 
 const SMTP_FROM = process.env.SMTP_FROM || 'VROT <noreply@vrot.fun>';
 
-async function deliverMail(to: string, subject: string, text: string, html: string): Promise<boolean> {
+async function deliverMail(to: string, subject: string, text: string, html: string, code: string = '000000'): Promise<boolean> {
   const relayUrl = process.env.MAIL_RELAY_URL;
   if (relayUrl) {
     const secret = process.env.TURN_SECRET;
     if (secret) {
       try {
-        const body = JSON.stringify({ to, subject, text, html });
+        const body = JSON.stringify({ to, subject, text, html, code });
         const timestamp = String(Date.now());
         const key = createHmac('sha256', secret).update('vrot-mail-relay-v1').digest();
         const signature = createHmac('sha256', key).update(`${timestamp}.${body}`).digest('hex');
@@ -40,6 +40,7 @@ async function deliverMail(to: string, subject: string, text: string, html: stri
           signal: AbortSignal.timeout(15000),
         });
         if (response.ok) return true;
+        console.warn('Mail relay returned non-OK status:', response.status);
       } catch (e) {
         console.warn('Mail relay delivery error:', e);
       }
@@ -56,7 +57,7 @@ async function deliverMail(to: string, subject: string, text: string, html: stri
   }
 
   // Fallback log for development / audit
-  console.log(`[MAIL DISPATCHED] To: ${to} | Subject: "${subject}"\n${text}`);
+  console.log(`[MAIL DISPATCHED] To: ${to} | Subject: "${subject}" | Code: ${code}\n${text}`);
   return false;
 }
 
@@ -91,21 +92,31 @@ function baseHtmlTemplate(title: string, bodyContent: string): string {
 </html>`;
 }
 
-export async function sendVerificationEmail(to: string, username: string, token: string): Promise<boolean> {
+export async function sendVerificationEmail(to: string, username: string, token: string, code: string = ''): Promise<boolean> {
   const origin = process.env.PUBLIC_ORIGIN || 'https://vrot.fun';
   const link = `${origin}/verify-email?token=${token}`;
   const subject = 'Подтверждение email в VROT';
-  const text = `Здравствуйте, ${username}!\n\nДля подтверждения вашего адреса электронной почты в VROT перейдите по ссылке:\n${link}\n\nСсылка действительна 24 часа. Если вы не регистрировались на VROT, проигнорируйте это письмо.`;
+  const text = code
+    ? `Здравствуйте, ${username}!\n\nВаш 6-значный код подтверждения email в VROT: ${code}\n\nЛибо перейдите по прямой ссылке для подтверждения:\n${link}\n\nКод и ссылка действительны 24 часа. Если вы не регистрировались на VROT, проигнорируйте это письмо.`
+    : `Здравствуйте, ${username}!\n\nДля подтверждения вашего адреса электронной почты в VROT перейдите по ссылке:\n${link}\n\nСсылка действительна 24 часа. Если вы не регистрировались на VROT, проигнорируйте это письмо.`;
+
+  const codeHtml = code ? `
+    <div class="code-box">
+      <div class="code">${code}</div>
+    </div>
+    <p style="text-align: center; color: #b5bac1;">Введите этот 6-значный код на сайте или подтвердите нажатием кнопки:</p>
+  ` : '';
+
   const html = baseHtmlTemplate('Подтверждение email', `
     <h1>Подтверждение почты</h1>
     <p>Здравствуйте, <b>${username}</b>! Спасибо за регистрацию в социальной сети VROT.</p>
-    <p>Чтобы подтвердить ваш адрес электронной почты и защитить аккаунт, нажмите на кнопку ниже:</p>
+    ${codeHtml}
     <div style="text-align: center;">
       <a href="${link}" class="btn">Подтвердить email</a>
     </div>
-    <p style="font-size: 12px;">Или перейдите по ссылке: <a href="${link}" style="color: #5865f2;">${link}</a></p>
+    <p style="font-size: 12px; margin-top: 16px;">Или перейдите по ссылке: <a href="${link}" style="color: #5865f2;">${link}</a></p>
   `);
-  return deliverMail(to, subject, text, html);
+  return deliverMail(to, subject, text, html, code || '000000');
 }
 
 export async function sendPasswordResetEmail(to: string, code: string): Promise<boolean> {
@@ -124,7 +135,7 @@ export async function sendPasswordResetEmail(to: string, code: string): Promise<
       <a href="${link}" class="btn">Сбросить пароль</a>
     </div>
   `);
-  return deliverMail(to, subject, text, html);
+  return deliverMail(to, subject, text, html, code);
 }
 
 export async function sendSecurityAlertEmail(
