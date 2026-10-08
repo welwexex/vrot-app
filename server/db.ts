@@ -277,16 +277,33 @@ export async function migrate(){
   await pool.query(`
     UPDATE users SET
       display_name = 'V AI',
-      bio = 'Персональный ИИ-ассистент VROT 2.0 на базе Gemma 4. Умеет общаться, анализировать фото и безопасно искать в ваших переписках.',
+      bio = 'Персональный ИИ-ассистент VROT 2.1. Умеет общаться на любые темы, анализировать фото и безопасно искать в ваших переписках без слэш-команд.',
       verified = true,
       status = 'bot',
       bot_commands = '[
         {"command": "start", "description": "Познакомиться с V AI"},
-        {"command": "search", "description": "Поиск по вашим сообщениям"},
         {"command": "clear", "description": "Сбросить память диалога"},
         {"command": "help", "description": "Справка и возможности"}
       ]'::jsonb
     WHERE username_key = 'vai_bot' OR id = '571e0139-02bf-498f-acab-87582cfcb7b0'
+  `);
+
+  // Migrations for VROT 2.1
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS archived_chats (
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      peer_id uuid NOT NULL,
+      is_channel boolean NOT NULL DEFAULT false,
+      archived_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, peer_id)
+    );
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS quick_reaction varchar(16) NOT NULL DEFAULT '❤️';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_code_hash char(64);
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client_type varchar(32) NOT NULL DEFAULT 'Web Browser';
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS device_name varchar(100) NOT NULL DEFAULT 'Браузер';
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS app_version varchar(32) NOT NULL DEFAULT '1.0.0';
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_address varchar(64) DEFAULT NULL;
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_active_at timestamptz NOT NULL DEFAULT now();
   `);
 }
 
