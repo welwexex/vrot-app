@@ -22,6 +22,7 @@ final class CallManager: NSObject, ObservableObject {
     static let shared = CallManager()
 
     @Published var state = CallState()
+    @Published var isScreenSharing: Bool = false
     private let provider: CXProvider
     private let controller = CXCallController()
     private var currentCallUUID: UUID?
@@ -37,7 +38,7 @@ final class CallManager: NSObject, ObservableObject {
         self.provider = CXProvider(configuration: config)
         super.init()
         let rtcAudio = RTCAudioSession.sharedInstance()
-        rtcAudio.useManualAudio = false
+        rtcAudio.useManualAudio = true
         rtcAudio.isAudioEnabled = true
         self.provider.setDelegate(self, queue: nil)
 
@@ -155,8 +156,31 @@ final class CallManager: NSObject, ObservableObject {
         timeoutTimer = nil
     }
 
+    func reportCallerCancelled(callId: String) {
+        guard let uuid = currentCallUUID, state.active, (state.callId == callId || callId.isEmpty) else { return }
+        cancelTimeout()
+        provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
+        currentCallUUID = nil
+        NativeCallMedia.shared.stop()
+        DispatchQueue.main.async {
+            self.state = CallState()
+        }
+    }
+
+    func toggleScreenShare() {
+        if isScreenSharing {
+            NativeCallMedia.shared.stopScreenShare()
+            isScreenSharing = false
+        } else {
+            NativeCallMedia.shared.startScreenShare()
+            isScreenSharing = true
+        }
+    }
+
     func endCall() {
         cancelTimeout()
+        NativeCallMedia.shared.stopScreenShare()
+        isScreenSharing = false
         if state.incoming && !state.answered && !state.callId.isEmpty {
             RealtimeService.shared.sendCallResponse(callId: state.callId, accept: false)
         } else if !state.targetId.isEmpty {
@@ -197,6 +221,7 @@ extension CallManager: CXProviderDelegate {
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         cancelTimeout()
         configureAudioSession()
+        RealtimeService.shared.connect()
         if !state.callId.isEmpty { RealtimeService.shared.sendCallResponse(callId: state.callId, accept: true) }
         if !state.targetId.isEmpty {
             NativeCallMedia.shared.start(targetId: state.targetId, kind: state.kind, video: state.isVideo)
@@ -216,9 +241,11 @@ extension CallManager: CXProviderDelegate {
             RealtimeService.shared.sendCallCancel(friendId: state.targetId)
         }
         RealtimeService.shared.sendCallLeave()
+        NativeCallMedia.shared.stopScreenShare()
         NativeCallMedia.shared.stop()
         currentCallUUID = nil
         DispatchQueue.main.async {
+            self.isScreenSharing = false
             self.state = CallState()
         }
         action.fulfill()
