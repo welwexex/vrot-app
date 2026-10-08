@@ -1010,7 +1010,11 @@ struct TextMessageBubbleView: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 15))
+            .font(.body)
+            .multilineTextAlignment(.leading)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
@@ -1024,7 +1028,7 @@ struct TextMessageBubbleView: View {
                 RoundedRectangle(cornerRadius: 18)
                     .stroke(Color.white.opacity(isMe ? 0.25 : 0.18), lineWidth: 1)
             )
-            .frame(maxWidth: 280, alignment: isMe ? .trailing : .leading)
+            .frame(maxWidth: min(UIScreen.main.bounds.width * 0.76, 360), alignment: isMe ? .trailing : .leading)
     }
 }
 
