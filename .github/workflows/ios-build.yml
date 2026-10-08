@@ -7,7 +7,9 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    # macos-15 is Apple Silicon and can remain unassigned during ARM64
+    # capacity shortages. The explicit Intel label uses the standard x64 pool.
+    runs-on: macos-15-intel
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
