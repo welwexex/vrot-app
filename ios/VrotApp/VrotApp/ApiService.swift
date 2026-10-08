@@ -43,6 +43,20 @@ final class SessionStore {
         return nil
     }
 
+    var token: String? {
+        guard let c = cookie() else { return nil }
+        if c.contains("vrot_session=") {
+            let parts = c.components(separatedBy: ";")
+            for p in parts {
+                let trimmed = p.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("vrot_session=") {
+                    return String(trimmed.dropFirst("vrot_session=".count))
+                }
+            }
+        }
+        return c
+    }
+
     func clear() {
         SecItemDelete(query as CFDictionary)
         UserDefaults.standard.removeObject(forKey: key)
