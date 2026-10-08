@@ -10,8 +10,8 @@ struct LiquidGlassModifier: ViewModifier {
         content
             .background {
                 if reduceTransparency {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(Color(red: 20/255, green: 27/255, blue: 37/255))
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(Theme.surface)
                 } else {
                     ZStack {
                         RoundedRectangle(cornerRadius: cornerRadius)
@@ -19,8 +19,8 @@ struct LiquidGlassModifier: ViewModifier {
                         RoundedRectangle(cornerRadius: cornerRadius)
                             .fill(LinearGradient(
                                 colors: [
-                                    Color.white.opacity(0.08),
-                                    Color.white.opacity(0.02)
+                                    Theme.accent.opacity(0.12),
+                                    Color.white.opacity(0.025)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -33,8 +33,8 @@ struct LiquidGlassModifier: ViewModifier {
                     .strokeBorder(
                         LinearGradient(
                             stops: [
-                                .init(color: Color.white.opacity(0.38), location: 0.0),
-                                .init(color: Color.white.opacity(0.12), location: 0.45),
+                                .init(color: Color.white.opacity(0.30), location: 0.0),
+                                .init(color: Theme.accent.opacity(0.20), location: 0.45),
                                 .init(color: Color.white.opacity(0.04), location: 1.0)
                             ],
                             startPoint: .topLeading,
@@ -43,7 +43,7 @@ struct LiquidGlassModifier: ViewModifier {
                         lineWidth: 1
                     )
             )
-            .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 8)
+            .shadow(color: Theme.accent.opacity(0.10), radius: 20, x: 0, y: 8)
     }
 }
 

@@ -2,17 +2,17 @@ import SwiftUI
 
 struct Theme {
     static var isLight: Bool { UserDefaults.standard.string(forKey: "vrot_theme") == "light" }
-    static var darkBg: Color { isLight ? Color(red: 239/255, green: 242/255, blue: 248/255) : Color(red: 15/255, green: 18/255, blue: 28/255) }
-    static var surface: Color { isLight ? .white : Color(red: 24/255, green: 28/255, blue: 42/255) }
-    static var card: Color { isLight ? Color(red: 248/255, green: 249/255, blue: 253/255) : Color(red: 34/255, green: 39/255, blue: 56/255) }
-    static let accent = Color(red: 88/255, green: 101/255, blue: 242/255)
-    static var textPrimary: Color { isLight ? Color(red: 31/255, green: 36/255, blue: 49/255) : Color(red: 227/255, green: 229/255, blue: 232/255) }
-    static var textSecondary: Color { isLight ? Color(red: 88/255, green: 97/255, blue: 115/255) : Color(red: 154/255, green: 164/255, blue: 178/255) }
-    static let red = Color(red: 237/255, green: 66/255, blue: 69/255)
-    static let green = Color(red: 87/255, green: 242/255, blue: 135/255)
+    static var darkBg: Color { isLight ? Color(red: 244/255, green: 245/255, blue: 251/255) : Color(red: 7/255, green: 9/255, blue: 17/255) }
+    static var surface: Color { isLight ? .white : Color(red: 15/255, green: 19/255, blue: 32/255) }
+    static var card: Color { isLight ? Color(red: 250/255, green: 250/255, blue: 254/255) : Color(red: 24/255, green: 29/255, blue: 45/255) }
+    static let accent = Color(red: 146/255, green: 124/255, blue: 255/255)
+    static var textPrimary: Color { isLight ? Color(red: 24/255, green: 27/255, blue: 39/255) : Color(red: 247/255, green: 248/255, blue: 255/255) }
+    static var textSecondary: Color { isLight ? Color(red: 83/255, green: 91/255, blue: 112/255) : Color(red: 155/255, green: 165/255, blue: 188/255) }
+    static let red = Color(red: 1, green: 101/255, blue: 125/255)
+    static let green = Color(red: 92/255, green: 226/255, blue: 194/255)
     static var glassBg: Color { isLight ? Color.white.opacity(0.75) : Color.white.opacity(0.08) }
     static var glassBorder: Color { isLight ? Color.black.opacity(0.1) : Color.white.opacity(0.18) }
-    static var glassCard: Color { isLight ? Color.white.opacity(0.85) : Color(red: 28/255, green: 34/255, blue: 52/255).opacity(0.65) }
+    static var glassCard: Color { isLight ? Color.white.opacity(0.86) : Color(red: 18/255, green: 23/255, blue: 38/255).opacity(0.72) }
 }
 
 func L(_ ru: String) -> String {

@@ -60,6 +60,7 @@ final class NativeCallMedia: ObservableObject {
     private var iceServers: [RTCIceServer] = []
     private var target: [String: Any]?
     private var active = false
+    private var lastScreenFrameTimestampNs: Int64 = 0
 
     private init() {
         RTCInitializeSSL()
@@ -295,10 +296,13 @@ final class NativeCallMedia: ObservableObject {
     func startScreenShare() {
         guard active, !isScreenSharing, let source = videoSource, let capturer = videoCapturer else { return }
         videoCapturer?.stopCapture()
+        lastScreenFrameTimestampNs = 0
         RPScreenRecorder.shared().startCapture(handler: { [weak self] buffer, kind, error in
             if let error { self?.report(error); return }
             guard kind == .video, let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
             let stamp = Int64(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer)) * 1_000_000_000)
+            guard let self, stamp - self.lastScreenFrameTimestampNs >= 50_000_000 else { return }
+            self.lastScreenFrameTimestampNs = stamp
             let frame = RTCVideoFrame(buffer: RTCCVPixelBuffer(pixelBuffer: pixelBuffer), rotation: ._0, timeStampNs: stamp)
             source.capturer(capturer, didCapture: frame)
         }, completionHandler: { [weak self] error in

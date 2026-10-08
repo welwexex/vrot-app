@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-server/
+release/
+.env
+uploads/
+*.log
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/google-services.json
+android/*.keystore
+android/*.jks
+secrets/
