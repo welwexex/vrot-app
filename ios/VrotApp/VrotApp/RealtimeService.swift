@@ -181,8 +181,10 @@ final class RealtimeService: NSObject, URLSessionWebSocketDelegate {
                 case "call:peer-left", "call:cancelled":
                     if let socketId = payload["socketId"] as? String { NativeCallMedia.shared.peerLeft(socketId) }
                     if CallManager.shared.state.kind == "friend" {
+                        let cId = payload["callId"] as? String ?? ""
                         CallManager.shared.state.status = "Собеседник завершил вызов"
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        CallManager.shared.reportCallerCancelled(callId: cId)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                             CallManager.shared.endCall()
                         }
                     }
