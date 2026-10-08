@@ -16,6 +16,8 @@ final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDel
     static let shared = AudioRecorderManager()
 
     @Published var isRecording = false
+    @Published var isLocked = false
+    @Published var isCancelling = false
     @Published var recordDuration: TimeInterval = 0
 
     private var audioRecorder: AVAudioRecorder?
@@ -48,6 +50,8 @@ final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDel
             audioRecorder?.record()
 
             isRecording = true
+            isLocked = false
+            isCancelling = false
             recordDuration = 0
 
             timer?.invalidate()
@@ -58,6 +62,8 @@ final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDel
         } catch {
             print("Failed to start audio recording: \(error.localizedDescription)")
             isRecording = false
+            isLocked = false
+            isCancelling = false
         }
     }
 
@@ -66,6 +72,8 @@ final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDel
         timer?.invalidate()
         timer = nil
         isRecording = false
+        isLocked = false
+        isCancelling = false
 
         audioRecorder?.stop()
         audioRecorder = nil
@@ -82,6 +90,8 @@ final class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDel
         timer?.invalidate()
         timer = nil
         isRecording = false
+        isLocked = false
+        isCancelling = false
         audioRecorder?.stop()
         audioRecorder = nil
         if let url = recordedURL {
@@ -119,6 +129,9 @@ final class AudioPlayerManager: NSObject, ObservableObject {
             if let cookie = SessionStore.shared.cookie() {
                 req.setValue(cookie, forHTTPHeaderField: "Cookie")
             }
+            if let token = SessionStore.shared.token {
+                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
             req.setValue("https://vrot.fun", forHTTPHeaderField: "Origin")
 
             do {
@@ -128,7 +141,26 @@ final class AudioPlayerManager: NSObject, ObservableObject {
                     return
                 }
 
-                let ext = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
+                let contentType = (httpRes.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+                var ext = "m4a"
+                if contentType.contains("audio/mpeg") || contentType.contains("audio/mp3") {
+                    ext = "mp3"
+                } else if contentType.contains("audio/wav") || contentType.contains("audio/x-wav") {
+                    ext = "wav"
+                } else if contentType.contains("audio/aac") {
+                    ext = "aac"
+                } else if contentType.contains("audio/ogg") {
+                    ext = "ogg"
+                } else if contentType.contains("audio/webm") {
+                    ext = "webm"
+                } else if data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]) {
+                    ext = "wav"
+                } else if data.prefix(3) == Data([0x49, 0x44, 0x33]) || (data.count > 2 && data[0] == 0xFF && (data[1] & 0xE0) == 0xE0) {
+                    ext = "mp3"
+                } else if !url.pathExtension.isEmpty {
+                    ext = url.pathExtension
+                }
+
                 let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("voice_\(messageId).\(ext)")
                 try? data.write(to: tempURL, options: .atomic)
 
@@ -457,7 +489,7 @@ struct ChatView: View {
             .background(Color.white.opacity(0.08))
             .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.95))
             .overlay(Rectangle().frame(height: 1).foregroundColor(Color.white.opacity(0.15)), alignment: .top)
-        } else if recorder.isRecording {
+        } else if recorder.isRecording && recorder.isLocked {
             HStack(spacing: 16) {
                 Circle().fill(Theme.red).frame(width: 12, height: 12)
                 Text(String(format: "Запись: %.1f сек", recorder.recordDuration))
@@ -477,6 +509,24 @@ struct ChatView: View {
             .background(Color(red: 24/255, green: 28/255, blue: 42/255).opacity(0.85))
         } else {
             VStack(spacing: 4) {
+              if recorder.isRecording && !recorder.isLocked {
+                  HStack(spacing: 8) {
+                      Circle().fill(Theme.red).frame(width: 8, height: 8)
+                      Text(String(format: "%.1f сек", recorder.recordDuration))
+                          .font(.system(size: 12, weight: .bold))
+                          .foregroundColor(.white)
+                      Spacer()
+                      Text(recorder.isCancelling ? "Отпустите для отмены" : "↑ Зафиксировать  •  ← Отмена")
+                          .font(.system(size: 11, weight: .medium))
+                          .foregroundColor(recorder.isCancelling ? Theme.red : Theme.textSecondary)
+                  }
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 6)
+                  .background(Color.black.opacity(0.45))
+                  .cornerRadius(8)
+                  .padding(.horizontal, 12)
+                  .padding(.top, 4)
+              }
               if let rep = replyingToMessage {
                   let repAuthor = (rep["author"] as? [String: Any])?["displayName"] as? String ?? ((rep["author"] as? [String: Any])?["username"] as? String ?? "Пользователь")
                   let repText = (rep["content"] as? String ?? "Вложение").prefix(60)
@@ -556,15 +606,45 @@ struct ChatView: View {
                     )
 
                 if inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button(action: { recorder.startRecording() }) {
-                        Image(systemName: "mic.fill")
+                    ZStack {
+                        Circle()
+                            .fill(recorder.isRecording ? (recorder.isCancelling ? Theme.red : Theme.accent) : Color.white.opacity(0.12))
+                            .frame(width: 40, height: 40)
+                            .scaleEffect(recorder.isRecording ? 1.2 : 1.0)
+                            .animation(.easeInOut(duration: 0.2), value: recorder.isRecording)
+                        Image(systemName: recorder.isCancelling ? "trash.fill" : (recorder.isRecording ? "waveform" : "mic.fill"))
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Theme.textPrimary)
-                            .padding(10)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                            .foregroundColor(.white)
                     }
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { val in
+                                if !recorder.isRecording {
+                                    recorder.startRecording()
+                                    let impact = UIImpactFeedbackGenerator(style: .medium)
+                                    impact.impactOccurred()
+                                } else if !recorder.isLocked {
+                                    if val.translation.height < -50 {
+                                        recorder.isLocked = true
+                                        let impact = UINotificationFeedbackGenerator()
+                                        impact.notificationOccurred(.success)
+                                    } else if val.translation.width < -60 {
+                                        recorder.isCancelling = true
+                                    } else {
+                                        recorder.isCancelling = false
+                                    }
+                                }
+                            }
+                            .onEnded { _ in
+                                if !recorder.isLocked {
+                                    if recorder.isCancelling || recorder.recordDuration < 0.5 {
+                                        recorder.cancelRecording()
+                                    } else {
+                                        sendRecordedVoice()
+                                    }
+                                }
+                            }
+                    )
                 } else {
                     Button(action: sendMessage) {
                         Image(systemName: "paperplane.fill")
@@ -787,12 +867,18 @@ struct ChatView: View {
             let author = msg["author"] as? [String: Any]
             let authorName = author?["displayName"] as? String ?? (author?["username"] as? String ?? "Пользователь")
             let content = msg["content"] as? String ?? ""
-            let forwardBody = "Переслано от: \(authorName)\n\(content)"
+            let att = msg["attachment"] as? [String: Any]
+            let attId = att?["id"] as? String
+            let forwardBody = "Переслано от: \(authorName)" + (content.isEmpty ? "" : "\n\(content)")
 
             Task {
+                var body: [String: Any] = ["content": forwardBody, "clientMessageId": UUID().uuidString]
+                if let aId = attId {
+                    body["attachmentId"] = aId
+                }
                 _ = try? await ApiService.shared.post(
                     path: "/api/friends/\(targetId)/messages",
-                    body: ["content": forwardBody, "clientMessageId": UUID().uuidString]
+                    body: body
                 )
             }
         }
@@ -1075,6 +1161,11 @@ struct ChatMessageItemView: View {
                     }
                 }
                 .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    let impact = UIImpactFeedbackGenerator(style: .medium)
+                    impact.impactOccurred()
+                    onReact("👍")
+                }
                 .onTapGesture {
                     if isSelectionMode {
                         onSelectToggle()
@@ -1088,6 +1179,14 @@ struct ChatMessageItemView: View {
                     }
                 }
                 .contextMenu {
+                    ControlGroup {
+                        Button("👍") { onReact("👍") }
+                        Button("❤️") { onReact("❤️") }
+                        Button("😂") { onReact("😂") }
+                        Button("🔥") { onReact("🔥") }
+                        Button("💎") { onReact("💎") }
+                        Button("💩") { onReact("💩") }
+                    }
                     Button(action: onReply) {
                         Label("Ответить", systemImage: "arrowshape.turn.up.left")
                     }
@@ -1131,19 +1230,6 @@ struct ChatMessageItemView: View {
                                 .buttonStyle(.plain)
                             }
                         }
-
-                        Button(action: {
-                            withAnimation(.spring()) { showReactionsBar.toggle() }
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(Theme.textSecondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.08))
-                                .cornerRadius(10)
-                        }
-                        .buttonStyle(.plain)
                     }
                 }
             }
