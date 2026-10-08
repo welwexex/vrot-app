@@ -56,9 +56,16 @@ export function getTotpToken(secret: string, timeStep = 30, time = Date.now()): 
   return String(code).padStart(6, '0');
 }
 
-export function verifyTotpToken(secret: string, token: string, window = 1): boolean {
-  if (!token || !/^\d{6}$/.test(token.trim())) return false;
-  const clean = token.trim();
+import QRCode from 'qrcode';
+
+export async function generateQrDataUrl(uri: string): Promise<string> {
+  return QRCode.toDataURL(uri, { errorCorrectionLevel: 'M', margin: 2, scale: 6 });
+}
+
+export function verifyTotpToken(secret: string, token: string, window = 2): boolean {
+  if (!token) return false;
+  const clean = token.replace(/[\s-]+/g, '');
+  if (!/^\d{6}$/.test(clean)) return false;
   const now = Date.now();
   for (let i = -window; i <= window; i++) {
     const testTime = now + i * 30_000;
