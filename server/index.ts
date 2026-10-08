@@ -20,7 +20,7 @@ import {audit,migrate,pool} from './db.js';
 import {decrypt,encrypt,randomToken,sha256,uuid} from './crypto.js';
 import {getBotFatherId,handleBotFatherMessage,queueBotUpdate,setupBotRoutes} from './bots.js';
 import {V_AI_BOT_ID,processVAIMessage} from './vai.js';
-import {generateTotpSecret,verifyTotpToken,generateBackupCodes,verifyBackupCode,getTotpUri} from './totp.js';
+import {generateTotpSecret,verifyTotpToken,generateBackupCodes,verifyBackupCode,getTotpUri,generateQrDataUrl} from './totp.js';
 import {getRpId,createPasskeyChallenge,verifyPasskeyChallenge,parseAttestationObject} from './passkeys.js';
 import {sendVerificationEmail,sendSecurityAlertEmail} from './mailer.js';
 
@@ -28,7 +28,7 @@ declare global { namespace Express { interface Request { user?:{id:string,userna
 const app=express(); const server=http.createServer(app); const origin=process.env.PUBLIC_ORIGIN||'http://localhost:5173';
 const allowedOrigins=[origin,...(process.env.ADDITIONAL_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean)];
 const io=new Server(server,{cors:{origin:allowedOrigins,credentials:true},maxHttpBufferSize:1_000_000});
-app.set('trust proxy',1);
+app.set('trust proxy', true);
 app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'",'https://api.vrot.fun'],styleSrc:["'self'",'https://api.vrot.fun'],imgSrc:["'self'","data:",'https://api.vrot.fun'],mediaSrc:["'self'",'https://api.vrot.fun'],connectSrc:["'self'",'wss:','https://api.vrot.fun'],fontSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"]}}}));
 app.use(express.json({limit:'768kb'})); app.use(cookieParser());
 app.use('/api',(req,res,next)=>{res.setHeader('Cache-Control','private, no-store');next();});
@@ -39,12 +39,12 @@ app.use((req,res,next)=>{ if(req.path.startsWith('/bot') || req.path.startsWith(
 
 const wrap=(fn:(req:Request,res:Response,next:NextFunction)=>Promise<unknown>)=>(req:Request,res:Response,next:NextFunction)=>fn(req,res,next).catch(next);
 async function sessionUser(token?:string){
-  if(!token)return null; const q=await pool.query(`SELECT u.id,u.username,u.email,u.avatar_url,u.display_name,u.bio,u.banner_url,u.status,u.verified,u.donator,u.mrbeast_badge,u.admin_role,u.frozen_at,u.banned_at,u.ban_reason,u.is_bot,u.email_verified,u.totp_enabled FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.deleted_at IS NULL`,[sha256(token)]);
-  if(q.rows[0]){void pool.query('UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1',[sha256(token)]).catch(()=>{});}
+  if(!token)return null; const q=await pool.query(`SELECT u.id,u.username,u.email,u.avatar_url,u.display_name,u.bio,u.banner_url,u.status,u.verified,u.donator,u.mrbeast_badge,u.admin_role,u.frozen_at,u.banned_at,u.ban_reason,u.is_bot,u.email_verified,u.totp_enabled,u.quick_reaction FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.deleted_at IS NULL`,[sha256(token)]);
+  if(q.rows[0]){void pool.query('UPDATE sessions SET last_seen_at=now(), last_active_at=now() WHERE token_hash=$1',[sha256(token)]).catch(()=>{});}
   return q.rows[0]||null;
 }
-const auth=wrap(async(req,res,next)=>{const user=await sessionUser(req.cookies.vrot_session);if(!user)return res.status(401).json({error:'Нужен вход'});if(user.banned_at)return res.status(403).json({error:user.ban_reason?`Аккаунт заблокирован: ${user.ban_reason}`:'Аккаунт заблокирован'});if(user.frozen_at&&['POST','PUT','PATCH','DELETE'].includes(req.method)&&req.path!=='/auth/logout')return res.status(423).json({error:'Аккаунт заморожен: доступен только просмотр данных на момент заморозки'});req.user=user;next();});
-const publicUser=(r:any)=>({id:r.id,username:r.username,displayName:r.display_name||r.username,email:r.email||'',emailVerified:Boolean(r.email_verified),totpEnabled:Boolean(r.totp_enabled),avatarUrl:r.avatar_url||null,bannerUrl:r.banner_url||null,bio:r.bio||'',status:r.is_bot?'bot':(r.status||'online'),isBot:Boolean(r.is_bot),verified:Boolean(r.verified),donator:Boolean(r.donator),mrbeastBadge:Boolean(r.mrbeast_badge),adminRole:r.admin_role||'user',frozen:Boolean(r.frozen_at),botCommands:r.bot_commands||[],privacySettings:r.privacy_settings||{allowMessages:'everyone',allowCalls:'everyone',showBio:'everyone',showBanner:'everyone',showAvatar:'everyone'},chatWallpaper:r.chat_wallpaper||null,customization:r.customization||{accentColor:'#5865f2',messageStyle:'bubble'}});
+const auth=wrap(async(req,res,next)=>{const token=req.cookies?.vrot_session||(req.headers.authorization?.startsWith('Bearer ')?req.headers.authorization.slice(7):undefined);const user=await sessionUser(token);if(!user)return res.status(401).json({error:'Нужен вход'});if(user.banned_at)return res.status(403).json({error:user.ban_reason?`Аккаунт заблокирован: ${user.ban_reason}`:'Аккаунт заблокирован'});if(user.frozen_at&&['POST','PUT','PATCH','DELETE'].includes(req.method)&&req.path!=='/auth/logout')return res.status(423).json({error:'Аккаунт заморожен: доступен только просмотр данных на момент заморозки'});req.user=user;next();});
+const publicUser=(r:any)=>({id:r.id,username:r.username,displayName:r.display_name||r.username,email:r.email||'',emailVerified:Boolean(r.email_verified),totpEnabled:Boolean(r.totp_enabled),avatarUrl:r.avatar_url||null,bannerUrl:r.banner_url||null,bio:r.bio||'',status:r.is_bot?'bot':(r.status||'online'),isBot:Boolean(r.is_bot),verified:Boolean(r.verified),donator:Boolean(r.donator),mrbeastBadge:Boolean(r.mrbeast_badge),adminRole:r.admin_role||'user',frozen:Boolean(r.frozen_at),botCommands:r.bot_commands||[],quickReaction:r.quick_reaction||'👍',privacySettings:r.privacy_settings||{allowMessages:'everyone',allowCalls:'everyone',showBio:'everyone',showBanner:'everyone',showAvatar:'everyone'},chatWallpaper:r.chat_wallpaper||null,customization:r.customization||{accentColor:'#5865f2',messageStyle:'bubble'}});
 const adminRoles=['moderator','admin','owner'];
 const requireAdmin=(req:Request,res:Response,next:NextFunction)=>adminRoles.includes(req.user?.admin_role||'')?next():res.status(403).json({error:'Нужны права администратора'});
 
@@ -162,11 +162,13 @@ app.post('/api/auth/register',rateLimit({windowMs:15*60_000,limit:15}),wrap(asyn
   const id=uuid(),hash=await argon2.hash(d.password,{type:argon2.argon2id,memoryCost:65536,timeCost:3,parallelism:1});
   const verifyToken=randomToken(32);
   const verifyHash=sha256(verifyToken);
-  try{await pool.query(`INSERT INTO users(id,username,username_key,email,password_hash,birth_date,email_verified,email_verify_token_hash,email_verify_expires_at) VALUES($1,$2,$3,$4,$5,$6,false,$7,now()+interval '24 hours')`,[id,d.username,d.username.toLocaleLowerCase('ru'),d.email,hash,d.birthDate,verifyHash]);}
+  const verifyCode=String(Math.floor(100000+Math.random()*900000));
+  const verifyCodeHash=sha256(verifyCode);
+  try{await pool.query(`INSERT INTO users(id,username,username_key,email,password_hash,birth_date,email_verified,email_verify_token_hash,email_verify_code_hash,email_verify_expires_at) VALUES($1,$2,$3,$4,$5,$6,false,$7,$8,now()+interval '24 hours')`,[id,d.username,d.username.toLocaleLowerCase('ru'),d.email,hash,d.birthDate,verifyHash,verifyCodeHash]);}
   catch(e:any){if(e.code==='23505')return res.status(409).json({error:'Имя или email уже заняты'});throw e;}
   await audit(id,'account.registered',id);
   await issueSession(req,res,id);
-  void sendVerificationEmail(d.email,d.username,verifyToken).catch(console.error);
+  void sendVerificationEmail(d.email,d.username,verifyToken,verifyCode).catch(console.error);
   res.status(201).json({user:{id,username:d.username,email:d.email,emailVerified:false}});
 }));
 
@@ -216,34 +218,50 @@ app.post('/api/auth/login/2fa',rateLimit({windowMs:15*60_000,limit:20}),wrap(asy
 }));
 
 app.post('/api/auth/verify-email',wrap(async(req,res)=>{
-  const {token}=z.object({token:z.string().min(1)}).parse(req.body);
-  const tokenHash=sha256(token);
-  const q=await pool.query('SELECT id,username,email FROM users WHERE email_verify_token_hash=$1 AND email_verify_expires_at>now() AND deleted_at IS NULL',[tokenHash]);
-  if(!q.rows[0]) return res.status(400).json({error:'Ссылка для подтверждения недействительна или устарела'});
+  const {token,code,email}=z.object({token:z.string().optional(),code:z.string().optional(),email:z.string().email().optional()}).parse(req.body);
+  let q: any;
+  if(code){
+    const codeHash=sha256(code.trim());
+    if(email){
+      q=await pool.query('SELECT id,username,email FROM users WHERE email_verify_code_hash=$1 AND lower(email)=$2 AND email_verify_expires_at>now() AND deleted_at IS NULL',[codeHash,email.toLowerCase()]);
+    } else {
+      q=await pool.query('SELECT id,username,email FROM users WHERE email_verify_code_hash=$1 AND email_verify_expires_at>now() AND deleted_at IS NULL',[codeHash]);
+    }
+  } else if(token){
+    const tokenHash=sha256(token.trim());
+    q=await pool.query('SELECT id,username,email FROM users WHERE email_verify_token_hash=$1 AND email_verify_expires_at>now() AND deleted_at IS NULL',[tokenHash]);
+  } else {
+    return res.status(400).json({error:'Укажите код или токен подтверждения'});
+  }
+  if(!q.rows[0]) return res.status(400).json({error:'Код или ссылка подтверждения недействительны или устарели'});
   const u=q.rows[0];
-  await pool.query('UPDATE users SET email_verified=true, email_verify_token_hash=null, email_verify_expires_at=null WHERE id=$1',[u.id]);
+  await pool.query('UPDATE users SET email_verified=true, email_verify_token_hash=null, email_verify_code_hash=null, email_verify_expires_at=null WHERE id=$1',[u.id]);
   await audit(u.id,'account.email_verified',u.id);
   res.json({ok:true,message:'Email успешно подтверждён'});
 }));
 
-app.post('/api/auth/verify-email/resend',auth,rateLimit({windowMs:2*60_000,limit:2}),wrap(async(req,res)=>{
+app.post('/api/auth/verify-email/resend',auth,rateLimit({windowMs:2*60_000,limit:3}),wrap(async(req,res)=>{
   if(req.user!.email_verified) return res.status(400).json({error:'Email уже подтверждён'});
   const verifyToken=randomToken(32);
   const verifyHash=sha256(verifyToken);
-  await pool.query(`UPDATE users SET email_verify_token_hash=$1, email_verify_expires_at=now()+interval '24 hours' WHERE id=$2`,[verifyHash,req.user!.id]);
-  void sendVerificationEmail(req.user!.email,req.user!.username,verifyToken).catch(console.error);
-  res.json({ok:true,message:'Письмо с подтверждением отправлено'});
+  const verifyCode=String(Math.floor(100000+Math.random()*900000));
+  const verifyCodeHash=sha256(verifyCode);
+  await pool.query(`UPDATE users SET email_verify_token_hash=$1, email_verify_code_hash=$2, email_verify_expires_at=now()+interval '24 hours' WHERE id=$3`,[verifyHash,verifyCodeHash,req.user!.id]);
+  const sent=await sendVerificationEmail(req.user!.email,req.user!.username,verifyToken,verifyCode);
+  res.json({ok:true,sent,message:sent?'Письмо с подтверждением отправлено':'Запрос принят, отправка обрабатывается'});
 }));
 
 app.post('/api/auth/2fa/setup',auth,wrap(async(req,res)=>{
   const secret=generateTotpSecret();
   const uri=getTotpUri(req.user!.username,secret);
-  res.json({secret,uri});
+  const qrDataUrl=await generateQrDataUrl(uri);
+  res.json({secret,uri,otpauthUri:uri,qrDataUrl});
 }));
 
 app.post('/api/auth/2fa/verify',auth,wrap(async(req,res)=>{
-  const {secret,code}=z.object({secret:z.string().min(16),code:z.string().regex(/^\d{6}$/)}).parse(req.body);
-  if(!verifyTotpToken(secret,code)){
+  const {secret,code}=z.object({secret:z.string().min(16),code:z.string().min(1)}).parse(req.body);
+  const cleanCode=code.replace(/[\s-]+/g,'');
+  if(!verifyTotpToken(secret,cleanCode)){
     return res.status(400).json({error:'Неверный код. Проверьте правильность времени на устройстве'});
   }
   const {rawCodes,hashedCodes}=generateBackupCodes(8);
@@ -254,25 +272,35 @@ app.post('/api/auth/2fa/verify',auth,wrap(async(req,res)=>{
 }));
 
 app.post('/api/auth/2fa/disable',auth,wrap(async(req,res)=>{
-  const {password,code}=z.object({password:z.string().min(1),code:z.string().min(1)}).parse(req.body);
+  const {password,code}=z.object({password:z.string().optional(),code:z.string().optional()}).parse(req.body);
+  if(!password&&!code){
+    return res.status(400).json({error:'Введите пароль или код подтверждения'});
+  }
   const q=await pool.query('SELECT password_hash,totp_secret,totp_backup_codes FROM users WHERE id=$1',[req.user!.id]);
   const u=q.rows[0];
-  if(!u||!await argon2.verify(u.password_hash,password)){
-    return res.status(400).json({error:'Неверный пароль'});
-  }
+  if(!u) return res.status(404).json({error:'Пользователь не найден'});
   let verified=false;
-  if(u.totp_secret&&/^\d{6}$/.test(code.trim())&&verifyTotpToken(u.totp_secret,code.trim())){
+  if(password&&await argon2.verify(u.password_hash,password)){
     verified=true;
-  } else {
-    const backupCodes:string[]=Array.isArray(u.totp_backup_codes)?u.totp_backup_codes:(typeof u.totp_backup_codes==='string'?JSON.parse(u.totp_backup_codes):[]);
-    const bCheck=verifyBackupCode(code.trim(),backupCodes);
-    if(bCheck.valid) verified=true;
   }
-  if(!verified) return res.status(400).json({error:'Неверный код двухфакторной аутентификации'});
+  if(!verified&&code&&code.trim()){
+    const cleanCode=code.replace(/[\s-]+/g,'');
+    if(u.totp_secret&&/^\d{6}$/.test(cleanCode)&&verifyTotpToken(u.totp_secret,cleanCode)){
+      verified=true;
+    } else {
+      const backupCodes:string[]=Array.isArray(u.totp_backup_codes)?u.totp_backup_codes:(typeof u.totp_backup_codes==='string'?JSON.parse(u.totp_backup_codes):[]);
+      const bCheck=verifyBackupCode(cleanCode,backupCodes);
+      if(bCheck.valid) verified=true;
+    }
+    if(!verified&&code.length>=8&&await argon2.verify(u.password_hash,code)){
+      verified=true;
+    }
+  }
+  if(!verified) return res.status(400).json({error:'Неверный код или пароль'});
   await pool.query('UPDATE users SET totp_secret=null, totp_enabled=false, totp_backup_codes=null WHERE id=$1',[req.user!.id]);
   await audit(req.user!.id,'account.2fa_disabled',req.user!.id);
   void sendSecurityAlertEmail(req.user!.email,req.user!.username,'2fa_disabled',{device:parseDevice(req.get('user-agent')),ip:String(req.ip||'')}).catch(()=>{});
-  res.json({ok:true});
+  res.json({ok:true,message:'2FA успешно отключена'});
 }));
 
 app.post('/api/auth/passkeys/register-options',auth,wrap(async(req,res)=>{
@@ -351,40 +379,52 @@ app.delete('/api/auth/passkeys/:id',auth,wrap(async(req,res)=>{
 }));
 
 app.get('/api/auth/sessions',auth,wrap(async(req,res)=>{
-  const currentTokenHash=sha256(req.cookies.vrot_session||'');
+  const currentToken=req.cookies?.vrot_session||(req.headers.authorization?.startsWith('Bearer ')?req.headers.authorization.slice(7):'');
+  const currentTokenHash=sha256(currentToken);
   const q=await pool.query(
-    `SELECT id,token_hash,ip_address "ipAddress",device_name "deviceName",user_agent "userAgent",created_at "createdAt",last_seen_at "lastSeenAt"
+    `SELECT id,token_hash,ip_address "ipAddress",device_name "deviceName",client_type "clientType",app_version "appVersion",user_agent "userAgent",created_at "createdAt",last_seen_at "lastSeenAt",last_active_at "lastActiveAt"
      FROM sessions WHERE user_id=$1 AND expires_at>now()
-     ORDER BY last_seen_at DESC NULLS LAST, created_at DESC`,
+     ORDER BY COALESCE(last_active_at, last_seen_at) DESC NULLS LAST, created_at DESC`,
     [req.user!.id]
   );
   const rows=q.rows.map(r=>({
     id:r.id,
     ipAddress:r.ipAddress||'—',
     deviceName:r.deviceName||parseDevice(r.userAgent),
+    clientType:r.clientType||'Web Browser',
+    appVersion:r.appVersion||'1.0.0',
     createdAt:r.createdAt,
-    lastSeenAt:r.lastSeenAt||r.createdAt,
-    isCurrent:r.token_hash===currentTokenHash
+    lastSeenAt:r.lastActiveAt||r.lastSeenAt||r.createdAt,
+    isCurrent:Boolean(currentToken && r.token_hash===currentTokenHash)
   }));
   res.json(rows);
 }));
 
 app.delete('/api/auth/sessions/:id',auth,wrap(async(req,res)=>{
   const sessId=String(req.params.id);
+  const currentToken=req.cookies?.vrot_session||(req.headers.authorization?.startsWith('Bearer ')?req.headers.authorization.slice(7):'');
   const q=await pool.query('DELETE FROM sessions WHERE id=$1 AND user_id=$2 RETURNING token_hash',[sessId,req.user!.id]);
-  if(q.rows[0]&&q.rows[0].token_hash===sha256(req.cookies.vrot_session||'')){
+  if(q.rows[0]&&currentToken&&q.rows[0].token_hash===sha256(currentToken)){
     res.clearCookie('vrot_session');
   }
   res.json({ok:true});
 }));
 
 app.delete('/api/auth/sessions-other',auth,wrap(async(req,res)=>{
-  const currentTokenHash=sha256(req.cookies.vrot_session||'');
+  const currentToken=req.cookies?.vrot_session||(req.headers.authorization?.startsWith('Bearer ')?req.headers.authorization.slice(7):'');
+  const currentTokenHash=sha256(currentToken);
   await pool.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2',[req.user!.id,currentTokenHash]);
   res.json({ok:true});
 }));
 
-app.post('/api/auth/logout',auth,wrap(async(req,res)=>{await pool.query('DELETE FROM sessions WHERE token_hash=$1',[sha256(req.cookies.vrot_session)]);res.clearCookie('vrot_session');res.status(204).end();}));
+app.post('/api/auth/logout',auth,wrap(async(req,res)=>{
+  const currentToken=req.cookies?.vrot_session||(req.headers.authorization?.startsWith('Bearer ')?req.headers.authorization.slice(7):'');
+  if(currentToken){
+    await pool.query('DELETE FROM sessions WHERE token_hash=$1',[sha256(currentToken)]);
+  }
+  res.clearCookie('vrot_session');
+  res.status(204).end();
+}));
 const resetEmailSchema=z.object({email:z.string().email().max(254).transform(v=>v.toLowerCase())});
 const resetConfirmSchema=resetEmailSchema.extend({code:z.string().regex(/^\d{6}$/),newPassword:z.string().min(12).max(128)});
 const smtpHost=process.env.SMTP_HOST||'';
@@ -492,6 +532,30 @@ app.put('/api/profile/customization',auth,wrap(async(req,res)=>{
   res.json({user:publicUser(q.rows[0])});
 }));
 
+app.put('/api/profile/quick-reaction',auth,wrap(async(req,res)=>{
+  const d=z.object({quickReaction:z.string().min(1).max(16)}).parse(req.body);
+  const q=await pool.query('UPDATE users SET quick_reaction=$1 WHERE id=$2 RETURNING *',[d.quickReaction,req.user!.id]);
+  res.json({user:publicUser(q.rows[0])});
+}));
+
+app.get('/api/chats/archived',auth,wrap(async(req,res)=>{
+  const q=await pool.query('SELECT peer_id "peerId", is_channel "isChannel", archived_at "archivedAt" FROM archived_chats WHERE user_id=$1 ORDER BY archived_at DESC',[req.user!.id]);
+  res.json(q.rows);
+}));
+
+app.post('/api/chats/:id/archive',auth,wrap(async(req,res)=>{
+  const peerId=String(req.params.id);
+  const isChannel=Boolean(req.body?.isChannel);
+  await pool.query('INSERT INTO archived_chats(user_id,peer_id,is_channel) VALUES($1,$2,$3) ON CONFLICT (user_id,peer_id) DO NOTHING',[req.user!.id,peerId,isChannel]);
+  res.json({ok:true,peerId,isChannel});
+}));
+
+app.delete('/api/chats/:id/archive',auth,wrap(async(req,res)=>{
+  const peerId=String(req.params.id);
+  await pool.query('DELETE FROM archived_chats WHERE user_id=$1 AND peer_id=$2',[req.user!.id,peerId]);
+  res.json({ok:true,peerId});
+}));
+
 app.get('/api/blocks',auth,wrap(async(req,res)=>{
   const q=await pool.query('SELECT u.id,u.username,u.display_name,u.avatar_url,ub.created_at FROM user_blocks ub JOIN users u ON u.id=ub.blocked_id WHERE ub.user_id=$1 ORDER BY ub.created_at DESC',[req.user!.id]);
   res.json(q.rows.map(r=>({id:r.id,username:r.username,displayName:r.display_name||r.username,avatarUrl:r.avatar_url||null,createdAt:r.created_at})));
@@ -525,11 +589,22 @@ async function issueSession(req:Request,res:Response,userId:string){
   const token=randomToken(),id=uuid();
   const ip=String(req.ip||req.socket?.remoteAddress||'');
   const ua=String(req.get('user-agent')||'').slice(0,300);
-  const device=parseDevice(ua);
+  const clientPlatform=String(req.get('x-client-platform')||req.get('x-platform')||'').toLowerCase();
+  const deviceModel=String(req.get('x-device-model')||req.get('x-device-name')||'');
+  const appVersion=String(req.get('x-app-version')||req.get('x-client-version')||'1.0.0').slice(0,32);
+
+  let clientType='Web Browser';
+  if (clientPlatform==='ios' || /VrotApp|Darwin|CFNetwork/i.test(ua)) clientType='iOS App';
+  else if (clientPlatform==='android' || /okhttp/i.test(ua)) clientType='Android App';
+  else if (/electron/i.test(ua)) clientType='Desktop App';
+
+  let device=deviceModel || parseDevice(ua);
+  if (clientType==='iOS App' && !deviceModel) device='Apple iPhone';
+
   await pool.query(
-    `INSERT INTO sessions(id,user_id,token_hash,expires_at,ip_hash,user_agent,ip_address,device_name,last_seen_at)
-     VALUES($1,$2,$3,now()+interval '30 days',$4,$5,$6,$7,now())`,
-    [id,userId,sha256(token),sha256(ip),ua,ip,device]
+    `INSERT INTO sessions(id,user_id,token_hash,expires_at,ip_hash,user_agent,ip_address,device_name,client_type,app_version,last_seen_at,last_active_at)
+     VALUES($1,$2,$3,now()+interval '30 days',$4,$5,$6,$7,$8,$9,now(),now())`,
+    [id,userId,sha256(token),sha256(ip),ua,ip,device,clientType,appVersion]
   );
   res.cookie('vrot_session',token,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/',maxAge:30*86400_000});
 }
@@ -716,6 +791,10 @@ app.post('/api/direct-messages/:id/reactions',auth,rateLimit({windowMs:10_000,li
   if(!msg||(msg.sender_id!==req.user!.id&&msg.recipient_id!==req.user!.id))return res.status(404).json({error:'Сообщение не найдено'});
   const ex=await pool.query('DELETE FROM message_reactions WHERE message_id=$1 AND user_id=$2 AND emoji=$3 RETURNING id',[msg.id,req.user!.id,emoji]);
   if(ex.rowCount===0){
+    const countQ=await pool.query('SELECT count(*)::int as c FROM message_reactions WHERE message_id=$1 AND user_id=$2',[msg.id,req.user!.id]);
+    if((countQ.rows[0]?.c||0)>=3){
+      return res.status(400).json({error:'Максимум 3 реакции на одно сообщение'});
+    }
     await pool.query('INSERT INTO message_reactions(message_id,user_id,emoji,is_dm) VALUES($1,$2,$3,true)',[msg.id,req.user!.id,emoji]);
   }
   const reactionsMap=await fetchReactions([msg.id],true);
@@ -732,7 +811,7 @@ const uploadTypes=new Set(['image/jpeg','image/png','image/webp','image/gif','au
 app.post('/api/uploads',auth,rateLimit({windowMs:60_000,limit:20}),express.raw({type:()=>true,limit:'20mb'}),wrap(async(req,res)=>{const mime=String(req.get('content-type')||'').split(';')[0].toLowerCase();if(!uploadTypes.has(mime))return res.status(415).json({error:'Этот тип файла не поддерживается'});const body=req.body as Buffer;if(!Buffer.isBuffer(body)||body.length===0)return res.status(400).json({error:'Пустой файл'});let name='file';try{name=decodeURIComponent(String(req.get('x-file-name')||'file')).replace(/[\r\n]/g,' ').slice(0,255)||'file'}catch{}const id=uuid(),storageName=randomToken(24);await writeFile(path.join('/app/uploads',storageName),body,{flag:'wx'});await pool.query('INSERT INTO attachments(id,uploader_id,mime,original_name,storage_name,size) VALUES($1,$2,$3,$4,$5,$6)',[id,req.user!.id,mime,name,storageName,body.length]);res.status(201).json({id,mime,name,size:body.length,url:`/api/uploads/${id}`});}));
 app.get('/api/uploads/:id',wrap(async(req,res)=>{
   const fileId=req.params.id;
-  const publicCheck=await pool.query(`SELECT a.* FROM attachments a WHERE a.id=$1 AND (a.mime LIKE 'image/%' OR EXISTS(SELECT 1 FROM users u WHERE u.avatar_url LIKE '%'||a.id||'%' OR u.banner_url LIKE '%'||a.id||'%') OR EXISTS(SELECT 1 FROM communities c WHERE c.avatar_url LIKE '%'||a.id||'%') OR EXISTS(SELECT 1 FROM channels ch WHERE ch.avatar_url LIKE '%'||a.id||'%') OR EXISTS(SELECT 1 FROM system_settings ss WHERE ss.value LIKE '%'||a.id||'%'))`,[fileId]);
+  const publicCheck=await pool.query(`SELECT a.* FROM attachments a WHERE a.id=$1 AND (EXISTS(SELECT 1 FROM users u WHERE u.avatar_url LIKE '%'||a.id||'%' OR u.banner_url LIKE '%'||a.id||'%') OR EXISTS(SELECT 1 FROM communities c WHERE c.avatar_url LIKE '%'||a.id||'%') OR EXISTS(SELECT 1 FROM channels ch WHERE ch.avatar_url LIKE '%'||a.id||'%') OR EXISTS(SELECT 1 FROM system_settings ss WHERE ss.value LIKE '%'||a.id||'%'))`,[fileId]);
   let file=publicCheck.rows[0];
   if(!file){
     const token=req.cookies?.vrot_session||(req.headers.authorization?.startsWith('Bearer ')?req.headers.authorization.slice(7):undefined);
@@ -807,6 +886,10 @@ app.post('/api/messages/:id/reactions',auth,rateLimit({windowMs:10_000,limit:40}
   if(!await canSendChannel(req.user!.id,msg.channel_id))return res.status(403).json({error:'Эта роль не может реагировать в канале'});
   const ex=await pool.query('DELETE FROM message_reactions WHERE message_id=$1 AND user_id=$2 AND emoji=$3 RETURNING id',[msg.id,req.user!.id,emoji]);
   if(ex.rowCount===0){
+    const countQ=await pool.query('SELECT count(*)::int as c FROM message_reactions WHERE message_id=$1 AND user_id=$2',[msg.id,req.user!.id]);
+    if((countQ.rows[0]?.c||0)>=3){
+      return res.status(400).json({error:'Максимум 3 реакции на одно сообщение'});
+    }
     await pool.query('INSERT INTO message_reactions(message_id,user_id,emoji,is_dm) VALUES($1,$2,$3,false)',[msg.id,req.user!.id,emoji]);
   }
   const reactionsMap=await fetchReactions([msg.id],false);
