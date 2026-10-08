@@ -310,20 +310,19 @@ struct ActiveCallOverlay: View {
                         }
                     }
 
-                    // Global System Screen Share (Broadcast Picker across all apps)
-                    ZStack {
-                        Image(systemName: "rectangle.on.rectangle")
+                    // Live Screen Sharing via WebRTC
+                    Button(action: {
+                        callManager.toggleScreenShare()
+                    }) {
+                        Image(systemName: callManager.isScreenSharing ? "rectangle.on.rectangle.slash" : "rectangle.on.rectangle")
                             .font(.system(size: 19))
-                            .foregroundColor(.white)
-                        SystemBroadcastPickerView()
-                            .frame(width: 54, height: 54)
-                            .opacity(0.02)
+                            .foregroundColor(callManager.isScreenSharing ? Theme.accent : .white)
                     }
                     .frame(width: 54, height: 54)
-                    .background(Theme.card.opacity(0.85))
+                    .background(callManager.isScreenSharing ? Theme.accent.opacity(0.25) : Theme.card.opacity(0.85))
                     .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
-                    .accessibilityLabel("Трансляция экрана всего устройства")
+                    .overlay(Circle().stroke(callManager.isScreenSharing ? Theme.accent : Color.white.opacity(0.2), lineWidth: 1))
+                    .accessibilityLabel("Демонстрация экрана")
 
                     // End Call
                     Button(action: {
