@@ -565,26 +565,40 @@ struct FriendsTabView: View {
                     }
 
                     Spacer()
-
-                    // Delete friend button
-                    Button(action: { removeFriend(id: id) }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(Theme.textSecondary.opacity(0.6))
-                            .padding(8)
-                            .background(Color.white.opacity(0.06))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(BorderlessButtonStyle())
                 }
                 .padding(.vertical, 4)
                 .listRowBackground(Theme.darkBg)
                 .contentShape(Rectangle())
+                .contextMenu {
+                    Button {
+                        onSelectFriend(friend)
+                    } label: {
+                        Label("Открыть", systemImage: "bubble.left.and.bubble.right")
+                    }
+                    Button {
+                        archiveChat(id: id)
+                    } label: {
+                        Label("В архив", systemImage: "archivebox")
+                    }
+                    Button(role: .destructive) {
+                        removeFriend(id: id)
+                    } label: {
+                        Label("Удалить из друзей", systemImage: "trash")
+                    }
+                    Button(role: .destructive) {
+                        blockUser(id: id)
+                    } label: {
+                        Label("Заблокировать", systemImage: "hand.raised")
+                    }
+                }
                 .onTapGesture {
                     onSelectFriend(friend)
                 }
             }
             .listStyle(.plain)
+            .refreshable {
+                onRefresh()
+            }
         }
     }
 
@@ -870,6 +884,38 @@ struct FriendsTabView: View {
                 _ = try await ApiService.shared.delete(path: "/api/friends/\(id)")
                 await MainActor.run {
                     self.actionMessage = "Удалено"
+                    self.onRefresh()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func archiveChat(id: String) {
+        Task {
+            do {
+                _ = try await ApiService.shared.post(path: "/api/chats/\(id)/archive", body: ["isChannel": false])
+                await MainActor.run {
+                    self.actionMessage = "В архиве"
+                    self.onRefresh()
+                }
+            } catch {
+                await MainActor.run {
+                    self.actionMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func blockUser(id: String) {
+        Task {
+            do {
+                _ = try await ApiService.shared.post(path: "/api/blocks", body: ["userId": id])
+                await MainActor.run {
+                    self.actionMessage = "Пользователь заблокирован"
                     self.onRefresh()
                 }
             } catch {
