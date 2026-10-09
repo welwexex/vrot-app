@@ -6,6 +6,7 @@ import UserNotifications
 import CryptoKit
 import Security
 import LocalAuthentication
+import CommonCrypto
 
 final class VrotAppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDelegate, UNUserNotificationCenterDelegate {
     private var voipRegistry: PKPushRegistry?
@@ -13,13 +14,6 @@ final class VrotAppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDele
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
-            if granted {
-                DispatchQueue.main.async {
-                    application.registerForRemoteNotifications()
-                }
-            }
-        }
 
         let registry = PKPushRegistry(queue: .main)
         registry.delegate = self
@@ -83,6 +77,9 @@ final class VrotAppDelegate: NSObject, UIApplicationDelegate, PKPushRegistryDele
 
     static func registerStoredTokens() {
         guard SessionStore.shared.cookie() != nil else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            if granted { DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() } }
+        }
         for kind in ["apns", "voip"] {
             guard let token = UserDefaults.standard.string(forKey: "vrot_push_\(kind)") else { continue }
             Task { _ = try? await ApiService.shared.post(path: "/api/ios/devices", body: ["token": token, "kind": kind]) }
@@ -203,6 +200,17 @@ struct VrotWelcomeSlides: View {
 }
 
 enum VrotAppLock {
+    private static func derive(_ code: String, salt: String) -> String {
+        let saltBytes = Array(salt.utf8)
+        var output = [UInt8](repeating: 0, count: 32)
+        let status = code.withCString { password in
+            saltBytes.withUnsafeBufferPointer { buffer in
+                CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password, code.utf8.count, buffer.baseAddress, buffer.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), 210_000, &output, output.count)
+            }
+        }
+        guard status == kCCSuccess else { return "" }
+        return output.map { String(format: "%02x", $0) }.joined()
+    }
     private static let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "fun.vrot.applock", kSecAttrAccount as String: "pin"]
     private static var saved: String? {
         var q = query; q[kSecReturnData as String] = true
@@ -213,7 +221,8 @@ enum VrotAppLock {
     static var hasCode: Bool { saved != nil }
     static func set(_ code: String) throws {
         let salt = UUID().uuidString
-        let hash = SHA256.hash(data: Data((salt + code).utf8)).map { String(format: "%02x", $0) }.joined()
+        let hash = derive(code, salt: salt)
+        guard !hash.isEmpty else { throw APIError.decodingError }
         var q = query; q[kSecValueData as String] = Data((salt + ":" + hash).utf8)
         q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         SecItemDelete(query as CFDictionary)
@@ -221,7 +230,7 @@ enum VrotAppLock {
     }
     static func verify(_ code: String) -> Bool {
         guard let parts = saved?.split(separator: ":"), parts.count == 2 else { return false }
-        return SHA256.hash(data: Data((String(parts[0]) + code).utf8)).map { String(format: "%02x", $0) }.joined() == String(parts[1])
+        return derive(code, salt: String(parts[0])) == String(parts[1])
     }
 }
 

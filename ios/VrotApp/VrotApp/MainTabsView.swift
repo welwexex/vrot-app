@@ -1758,7 +1758,7 @@ struct ProfileTabView: View {
                         loadBlockedUsers()
                     }) {
                         HStack {
-                            Image(systemName: "person.crop.circle.badge.checkmark")
+                            Image(systemName: section == "security" ? "lock.shield" : (section == "customization" ? "paintbrush.pointed" : "person.crop.circle"))
                                 .font(.system(size: 18))
                                 .foregroundColor(Theme.accent)
                             Text(section == "security" ? "Безопасность" : (section == "customization" ? "Кастомизация" : "Профиль и оформление"))
@@ -1817,30 +1817,6 @@ struct ProfileTabView: View {
                         }
                         .padding(.top, 10)
 
-                        // 3 Specific Sections: Profile & Appearance, Security, Customization
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach([
-                                    ("profile_appearance", "Профиль и оформление"),
-                                    ("security", "Безопасность"),
-                                    ("customization", "Кастомизация")
-                                ], id: \.0) { item in
-                                    Button(item.1) {
-                                        settingsSection = item.0
-                                        noticeMessage = ""
-                                        if item.0 == "security" {
-                                            loadSecurityData()
-                                            loadBlockedUsers()
-                                        }
-                                    }
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(settingsSection == item.0 ? .white : Theme.textSecondary)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 10)
-                                    .background(settingsSection == item.0 ? Theme.accent : Theme.card, in: Capsule())
-                                }
-                            }
-                        }
 
                         if settingsSection == "profile_appearance" {
                             profileAndAppearanceSection

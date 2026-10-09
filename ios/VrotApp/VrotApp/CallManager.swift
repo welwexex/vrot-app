@@ -42,7 +42,6 @@ final class CallManager: NSObject, ObservableObject {
         rtcAudio.isAudioEnabled = true
         self.provider.setDelegate(self, queue: nil)
 
-        setupNotifications()
     }
 
     private func setupNotifications() {
@@ -75,7 +74,16 @@ final class CallManager: NSObject, ObservableObject {
 
     // Show native system incoming call (CallKit lock screen)
     func reportIncomingCall(friendId: String, callerName: String, avatarUrl: String? = nil, isVideo: Bool = false, callId: String, expiresAt: Double, completion: (() -> Void)? = nil) {
-        guard expiresAt > Date().timeIntervalSince1970 * 1000 else { completion?(); return }
+        guard expiresAt > Date().timeIntervalSince1970 * 1000 else {
+            let expiredUUID = UUID()
+            let update = CXCallUpdate()
+            update.remoteHandle = CXHandle(type: .generic, value: callerName)
+            provider.reportNewIncomingCall(with: expiredUUID, update: update) { _ in
+                self.provider.reportCall(with: expiredUUID, endedAt: Date(), reason: .unanswered)
+                completion?()
+            }
+            return
+        }
         if state.active && state.callId == callId { completion?(); return }
         let uuid = UUID()
         self.currentCallUUID = uuid
@@ -121,21 +129,26 @@ final class CallManager: NSObject, ObservableObject {
             } else {
                 // 45 seconds timer for friend calls
                 DispatchQueue.main.async {
-                    if kind == "friend" { self?.startTimeoutTimer(seconds: 45.0) }
+                    if kind == "friend" { self?.startTimeoutTimer(seconds: 15.0) }
                 }
             }
         }
 
         // Notify socket and media
-        AVAudioSession.sharedInstance().requestRecordPermission { _ in }
-        configureAudioSession()
-        if kind == "friend" { RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo) }
-        NativeCallMedia.shared.start(targetId: targetId, kind: kind, video: isVideo)
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+            DispatchQueue.main.async {
+                guard let self = self, self.state.active else { return }
+                guard granted else { self.endCall(); return }
+                self.configureAudioSession()
+                if kind == "friend" { RealtimeService.shared.sendCallInvite(friendId: targetId, video: isVideo) }
+                NativeCallMedia.shared.start(targetId: targetId, kind: kind, video: isVideo)
+            }
+        }
     }
 
     func startTimeoutTimer(seconds: Double) {
         timeoutTimer?.invalidate()
-        let interval = max(15.0, seconds)
+        let interval = max(0.1, min(15.0, seconds))
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             guard let self = self, self.state.active else { return }
             if self.state.answered || NativeCallMedia.shared.connectedPeers > 0 {
