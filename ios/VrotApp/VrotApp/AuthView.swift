@@ -56,181 +56,77 @@ struct AuthView: View {
         return formatter.string(from: selectedBirthDate)
     }
 
+    @State private var showForm = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         ZStack {
             Theme.darkBg.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 20) {
-                    Spacer(minLength: 40)
-
-                    // Logo & Slogan
-                    VStack(spacing: 8) {
-                        Text("VROT")
-                            .font(.system(size: 36, weight: .black, design: .rounded))
-                            .foregroundColor(Theme.accent)
-                        Text("Своё место для своих.")
-                            .font(.system(size: 14))
-                            .foregroundColor(Theme.textSecondary)
-                    }
-
-                    // Card Container
-                    VStack(spacing: 16) {
-                        if mode == "login" || mode == "register" {
-                            // Picker Tab
-                            HStack(spacing: 0) {
-                                Button(action: { mode = "login"; errorMessage = "" }) {
-                                    Text("Вход")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(mode == "login" ? .white : Theme.textSecondary)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 10)
-                                        .background(mode == "login" ? Theme.accent : Color.clear)
-                                        .cornerRadius(8)
-                                }
-                                Button(action: { mode = "register"; errorMessage = "" }) {
-                                    Text("Регистрация")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(mode == "register" ? .white : Theme.textSecondary)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 10)
-                                        .background(mode == "register" ? Theme.accent : Color.clear)
-                                        .cornerRadius(8)
-                                }
-                            }
-                            .padding(4)
-                            .background(Theme.card)
-                            .cornerRadius(12)
-                        }
-
-                        // Title
-                        Text(mode == "login" ? "С возвращением" : (mode == "register" ? "Создать аккаунт" : "Подтверждение 2FA"))
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(Theme.textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        if !errorMessage.isEmpty {
-                            Text(errorMessage)
-                                .font(.system(size: 13))
-                                .foregroundColor(Theme.red)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
+            Circle().fill(Theme.accent.opacity(0.12)).frame(width: 320, height: 320).blur(radius: 80).offset(y: -200)
+            if !showForm {
+                VStack(spacing: 24) {
+                    Spacer()
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 70, weight: .light)).foregroundStyle(Theme.accent)
+                        .frame(width: 156, height: 156).liquidGlass(cornerRadius: 48)
+                    Text("ВРОТ").font(.system(size: 48, weight: .black, design: .rounded))
+                    Text("Ваши люди. Ваши разговоры.").font(.title3).foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    Button { mode = "login"; showForm = true } label: {
+                        Text("Войти").font(.headline).frame(maxWidth: .infinity).padding(18)
+                    }.buttonStyle(.plain).background(Theme.accent, in: Capsule()).foregroundStyle(.white)
+                    Button { mode = "register"; showForm = true } label: {
+                        Text("Создать аккаунт").font(.headline).frame(maxWidth: .infinity).padding(18)
+                    }.buttonStyle(.plain).liquidGlass(cornerRadius: 30)
+                }.padding(28)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Button { showForm = false; mode = "login"; errorMessage = "" } label: {
+                            Label("Назад", systemImage: "chevron.left")
+                        }.padding(.bottom, 16)
+                        Text(mode == "login" ? "С возвращением" : mode == "register" ? "Создать аккаунт" : "Подтвердите вход")
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                        Text(mode == "register" ? "Начните с адреса почты. Мы проверим его кодом перед созданием аккаунта." : "Добро пожаловать в Врот.")
+                            .foregroundStyle(Theme.textSecondary)
                         if mode == "2fa" || mode == "email-code" || mode == "register-code" {
-                            Text(mode == "2fa" ? "Введите код из Google Authenticator, Apple Passwords или Aegis. Также подходит резервный код." : "Введите код, отправленный на вашу почту. Он действует 10 минут.")
-                                .font(.system(size: 13))
-                                .foregroundColor(Theme.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                            CustomTextField(placeholder: "Код подтверждения (6 цифр)", text: $twoFaCode)
-                                .textContentType(.oneTimeCode)
-
-                            Button(action: performAuth) {
-                                HStack {
-                                    Spacer()
-                                    if isLoading {
-                                        ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    } else {
-                                        Text("Подтвердить вход")
-                                            .font(.system(size: 16, weight: .bold))
-                                            .foregroundColor(.white)
-                                    }
-                                    Spacer()
-                                }
-                                .frame(height: 48)
-                                .contentShape(Rectangle())
-                            }
-                            .background(Theme.accent)
-                            .cornerRadius(12)
-                            .buttonStyle(.plain)
-                            .disabled(isLoading || twoFaCode.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                            Button(action: { mode = "login"; errorMessage = ""; twoFaCode = "" }) {
-                                Text("Вернуться назад")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(Theme.textSecondary)
-                            }
-                            .padding(.top, 4)
+                            Text(mode == "2fa" ? "Код из Google Authenticator, Apple Passwords или Aegis. Можно использовать резервный код." : "Введите код из письма. Он действует 10 минут.")
+                                .foregroundStyle(Theme.textSecondary)
+                            TextField("Код подтверждения", text: $twoFaCode)
+                                .textContentType(.oneTimeCode).textInputAutocapitalization(.never)
+                                .autocorrectionDisabled().padding(18).background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
                         } else {
-                            if mode == "register" {
-                                CustomTextField(placeholder: "Имя пользователя", text: $username)
-                                CustomTextField(placeholder: "Email", text: $email)
-                                    .keyboardType(.emailAddress)
-                                    .autocapitalization(.none)
-                            } else {
-                                CustomTextField(placeholder: "Email или имя пользователя", text: $email)
-                                    .autocapitalization(.none)
-                            }
-
+                            if mode == "register" { CustomTextField(placeholder: "Имя пользователя", text: $username) }
+                            CustomTextField(placeholder: mode == "login" ? "Email или имя пользователя" : "Email", text: $email)
+                                .textContentType(.username)
                             CustomSecureField(placeholder: "Пароль", text: $password)
-
+                                .textContentType(mode == "register" ? .newPassword : .password)
                             if mode == "register" {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Дата рождения")
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(Theme.textSecondary)
-
-                                    HStack {
-                                        DatePicker(
-                                            "",
-                                            selection: $selectedBirthDate,
-                                            in: ...maxBirthDate,
-                                            displayedComponents: .date
-                                        )
-                                        .datePickerStyle(.compact)
-                                        .labelsHidden()
-                                        .colorScheme(.dark)
-
-                                        Spacer()
-
-                                        Text(birthDateFormatted)
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundColor(Theme.textPrimary)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(Theme.card)
-                                    .cornerRadius(10)
-                                }
-
-                                Toggle(isOn: $legalAccepted) {
-                                    Text("Мне не менее 18 лет, принимаю правила")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(Theme.textSecondary)
-                                }
-                                .toggleStyle(SwitchToggleStyle(tint: Theme.accent))
+                                DatePicker("Дата рождения", selection: $selectedBirthDate, in: ...maxBirthDate, displayedComponents: .date)
+                                Toggle("Мне не менее 18 лет, принимаю правила VROT", isOn: $legalAccepted).tint(Theme.accent)
+                                Link("Правила и конфиденциальность", destination: URL(string: "https://vrot.fun")!)
                             }
-
-                            // Submit Button
-                            Button(action: performAuth) {
-                                HStack {
-                                    Spacer()
-                                    if isLoading {
-                                        ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    } else {
-                                        Text(mode == "login" ? "Войти" : "Зарегистрироваться")
-                                            .font(.system(size: 16, weight: .bold))
-                                            .foregroundColor(Theme.textPrimary)
-                                    }
-                                    Spacer()
-                                }
-                                .frame(height: 48)
-                                .contentShape(Rectangle())
-                            }
-                            .background(Theme.accent)
-                            .cornerRadius(12)
-                            .buttonStyle(.plain)
-                            .disabled(isLoading)
                         }
-                    }
-                    .padding(24)
-                    .background(Theme.surface)
-                    .cornerRadius(20)
-                    .padding(.horizontal, 20)
-                }
+                        if !errorMessage.isEmpty { Text(errorMessage).foregroundStyle(Theme.red).accessibilityAddTraits(.isStaticText) }
+                        Button(action: performAuth) {
+                            HStack {
+                                Spacer()
+                                if isLoading { ProgressView().tint(.white) }
+                                else { Text(mode == "login" ? "Войти" : mode == "register" ? "Отправить код" : "Подтвердить").font(.headline) }
+                                Spacer()
+                            }.padding(18).contentShape(Rectangle())
+                        }.buttonStyle(.plain).background(Theme.accent, in: Capsule()).foregroundStyle(.white)
+                            .disabled(isLoading || (mode == "register" && !legalAccepted))
+                        if mode == "login" {
+                            Button("Создать аккаунт") { mode = "register"; errorMessage = "" }
+                        } else {
+                            Button("Вернуться ко входу") { mode = "login"; twoFaCode = ""; errorMessage = "" }
+                        }
+                    }.padding(28)
+                }.scrollDismissesKeyboard(.interactively)
             }
-        }
+        }.foregroundStyle(Theme.textPrimary)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: showForm)
     }
 
     private func performAuth() {
