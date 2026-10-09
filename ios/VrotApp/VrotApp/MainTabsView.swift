@@ -7,6 +7,9 @@ struct LiquidGlassModifier: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
 
     func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), !reduceTransparency {
+            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius))
+        } else {
         content
             .background {
                 if reduceTransparency {
@@ -44,6 +47,7 @@ struct LiquidGlassModifier: ViewModifier {
                     )
             )
             .shadow(color: Theme.accent.opacity(0.10), radius: 20, x: 0, y: 8)
+        }
     }
 }
 
@@ -100,9 +104,8 @@ struct MainTabsView: View {
             } else if let comm = activeCommunity {
                 CommunityDetailView(community: comm, onBack: { activeCommunity = nil; loadData() })
             } else {
-                ZStack(alignment: .bottom) {
-                    Group {
-                        if selectedTab == 0 {
+                TabView(selection: $selectedTab) {
+                    NavigationStack {
                             FriendsTabView(friends: friends, communities: communities, onRefresh: {
                                 loadData()
                             }, onSelectFriend: { friend in
@@ -114,42 +117,22 @@ struct MainTabsView: View {
                                 let name = friend["displayName"] as? String ?? (friend["username"] as? String ?? "Друг")
                                 CallManager.shared.startOutgoingCall(targetId: id, name: name, avatarUrl: friend["avatarUrl"] as? String, isVideo: isVideo)
                             })
-                        } else if selectedTab == 1 {
+                    }
+                    .tabItem { Label("Чаты", systemImage: "bubble.left.and.bubble.right") }.tag(0)
+                    NavigationStack {
                             CommunitiesTabView(communities: communities, onSelectCommunity: { comm in
                                 activeCommunity = comm
                             }, onCommunityCreated: {
                                 loadData()
                             })
-                        } else {
+                    }
+                    .tabItem { Label("Сообщества", systemImage: "person.3") }.tag(1)
+                    NavigationStack {
                             ProfileTabView(user: currentUser, onLogout: logout, onUpdated: loadData)
-                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    // iOS 26 Liquid Glass Floating Dock Navigation
-                    HStack(spacing: 28) {
-                        DockTabButton(icon: "message.fill", title: L("Чаты"), isSelected: selectedTab == 0) {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                selectedTab = 0
-                            }
-                        }
-                        DockTabButton(icon: "person.3.fill", title: L("Сообщества"), isSelected: selectedTab == 1) {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                selectedTab = 1
-                            }
-                        }
-                        DockTabButton(icon: "person.crop.circle.fill", title: L("Профиль"), isSelected: selectedTab == 2) {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                selectedTab = 2
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 14)
-                    .liquidGlass(cornerRadius: 32)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 12)
+                    .tabItem { Label("Профиль", systemImage: "person.crop.circle") }.tag(2)
                 }
+                .tint(Theme.accent)
             }
         }
         .onAppear(perform: loadData)
@@ -1754,7 +1737,9 @@ struct ProfileTabView: View {
                         .foregroundColor(Theme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
+                    ForEach(["profile_appearance", "security", "customization"], id: \.self) { section in
                     Button(action: {
+                        settingsSection = section
                         displayName = user["displayName"] as? String ?? (user["username"] as? String ?? "")
                         bio = user["bio"] as? String ?? ""
                         selectedStatus = user["status"] as? String ?? "online"
@@ -1776,7 +1761,7 @@ struct ProfileTabView: View {
                             Image(systemName: "person.crop.circle.badge.checkmark")
                                 .font(.system(size: 18))
                                 .foregroundColor(Theme.accent)
-                            Text("Редактировать профиль и настройки")
+                            Text(section == "security" ? "Безопасность" : (section == "customization" ? "Кастомизация" : "Профиль и оформление"))
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundColor(Theme.textPrimary)
                             Spacer()
@@ -1788,6 +1773,10 @@ struct ProfileTabView: View {
                         .background(Color.white.opacity(0.06))
                         .cornerRadius(12)
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 1))
+                    }
+                    }
+                    NavigationLink(destination: VrotLockSettings()) {
+                        Label("Код приложения и Face ID", systemImage: "lock.iphone").frame(maxWidth: .infinity, alignment: .leading).padding(16)
                     }
                 }
                 .padding(.horizontal, 16)

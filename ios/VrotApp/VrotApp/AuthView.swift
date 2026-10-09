@@ -5,7 +5,7 @@ struct Theme {
     static var darkBg: Color { isLight ? Color(red: 244/255, green: 245/255, blue: 251/255) : Color(red: 7/255, green: 9/255, blue: 17/255) }
     static var surface: Color { isLight ? .white : Color(red: 15/255, green: 19/255, blue: 32/255) }
     static var card: Color { isLight ? Color(red: 250/255, green: 250/255, blue: 254/255) : Color(red: 24/255, green: 29/255, blue: 45/255) }
-    static let accent = Color(red: 146/255, green: 124/255, blue: 255/255)
+    static let accent = Color(red: 40/255, green: 188/255, blue: 147/255)
     static var textPrimary: Color { isLight ? Color(red: 24/255, green: 27/255, blue: 39/255) : Color(red: 247/255, green: 248/255, blue: 255/255) }
     static var textSecondary: Color { isLight ? Color(red: 83/255, green: 91/255, blue: 112/255) : Color(red: 155/255, green: 165/255, blue: 188/255) }
     static let red = Color(red: 1, green: 101/255, blue: 125/255)
@@ -30,7 +30,7 @@ func L(_ ru: String) -> String {
 
 struct AuthView: View {
     @Binding var isLoggedIn: Bool
-    @State private var mode = "login" // "login", "register", or "2fa"
+    @State private var mode = "login"
     @State private var email = ""
     @State private var password = ""
     @State private var username = ""
@@ -40,6 +40,9 @@ struct AuthView: View {
     @State private var isLoading = false
     @State private var twoFaTempToken = ""
     @State private var twoFaCode = ""
+    @State private var challengeUserId = ""
+    @State private var emailChallenge = ""
+    @State private var registrationChallenge = ""
 
     private var maxBirthDate: Date {
         Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
@@ -73,7 +76,7 @@ struct AuthView: View {
 
                     // Card Container
                     VStack(spacing: 16) {
-                        if mode != "2fa" {
+                        if mode == "login" || mode == "register" {
                             // Picker Tab
                             HStack(spacing: 0) {
                                 Button(action: { mode = "login"; errorMessage = "" }) {
@@ -113,14 +116,14 @@ struct AuthView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
-                        if mode == "2fa" {
-                            Text("Введите 6-значный код из Google Authenticator / Apple Passwords или резервный код:")
+                        if mode == "2fa" || mode == "email-code" || mode == "register-code" {
+                            Text(mode == "2fa" ? "Введите код из Google Authenticator, Apple Passwords или Aegis. Также подходит резервный код." : "Введите код, отправленный на вашу почту. Он действует 10 минут.")
                                 .font(.system(size: 13))
                                 .foregroundColor(Theme.textSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                             CustomTextField(placeholder: "Код подтверждения (6 цифр)", text: $twoFaCode)
-                                .keyboardType(.numberPad)
+                                .textContentType(.oneTimeCode)
 
                             Button(action: performAuth) {
                                 HStack {
@@ -234,20 +237,29 @@ struct AuthView: View {
         isLoading = true
         errorMessage = ""
 
-        Task {
+        Task { @MainActor in
             do {
                 if mode == "2fa" {
                     let body: [String: Any] = [
                         "tempToken": twoFaTempToken,
-                        "code": twoFaCode.trimmingCharacters(in: .whitespacesAndNewlines)
+                        "code": twoFaCode.trimmingCharacters(in: .whitespacesAndNewlines),
+                        "userId": challengeUserId
                     ]
                     _ = try await ApiService.shared.post(path: "/api/auth/login/2fa", body: body)
+                } else if mode == "email-code" || mode == "register-code" {
+                    let body: [String: Any] = mode == "email-code"
+                        ? ["loginChallenge": emailChallenge, "userId": challengeUserId, "code": twoFaCode]
+                        : ["registrationChallenge": registrationChallenge, "code": twoFaCode]
+                    let response = try await ApiService.shared.post(path: mode == "email-code" ? "/api/auth/login/email-code" : "/api/auth/register/confirm", body: body)
+                    if await advanceChallenge(response) { return }
+                    guard response["user"] != nil else { throw APIError.decodingError }
                 } else if mode == "login" {
                     let body: [String: Any] = [
                         "email": email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                         "password": password
                     ]
                     let resp = try await ApiService.shared.post(path: "/api/auth/login", body: body)
+                    if await advanceChallenge(resp) { return }
                     if let req2fa = resp["requires2FA"] as? Bool, req2fa,
                        let token = resp["tempToken"] as? String {
                         await MainActor.run {
@@ -266,7 +278,9 @@ struct AuthView: View {
                         "birthDate": birthDateFormatted,
                         "legalAccepted": legalAccepted
                     ]
-                    _ = try await ApiService.shared.post(path: "/api/auth/register", body: body)
+                    let response = try await ApiService.shared.post(path: "/api/auth/register", body: body)
+                    if await advanceChallenge(response) { return }
+                    guard response["user"] != nil else { throw APIError.decodingError }
                 }
 
                 await MainActor.run {
@@ -281,6 +295,18 @@ struct AuthView: View {
                 }
             }
         }
+    }
+
+    @MainActor private func advanceChallenge(_ response: [String: Any]) -> Bool {
+        if let token = response["registrationChallenge"] as? String {
+            registrationChallenge = token; mode = "register-code"
+        } else if let token = response["loginChallenge"] as? String {
+            emailChallenge = token; challengeUserId = response["userId"] as? String ?? ""; mode = "email-code"
+        } else if let token = response["tempToken"] as? String, response["requires2FA"] as? Bool == true {
+            twoFaTempToken = token; challengeUserId = response["userId"] as? String ?? ""; mode = "2fa"
+        } else { return false }
+        twoFaCode = ""; isLoading = false
+        return true
     }
 }
 

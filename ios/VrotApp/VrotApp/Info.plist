@@ -34,6 +34,8 @@
         <string>fetch</string>
         <string>remote-notification</string>
     </array>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Face ID открывает Врот, защищённый кодом приложения.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Микрофон необходим для голосовых звонков и записи голосовых сообщений в VROT</string>
     <key>NSCameraUsageDescription</key>
