@@ -94,6 +94,7 @@ struct MainTabsView: View {
     @State private var activeChatFriend: [String: Any]?
     @State private var activeCommunity: [String: Any]?
     @State private var isLoading = true
+    @State private var loadError = ""
 
     var body: some View {
         ZStack {
@@ -136,25 +137,42 @@ struct MainTabsView: View {
             }
         }
         .onAppear(perform: loadData)
+        .alert("Не удалось загрузить данные", isPresented: Binding(get: { !loadError.isEmpty }, set: { if !$0 { loadError = "" } })) {
+            Button("Повторить") { loadError = ""; loadData() }
+            Button("Закрыть", role: .cancel) { loadError = "" }
+        } message: { Text(loadError) }
     }
 
     private func loadData() {
         Task {
             do {
                 let userObj = try await ApiService.shared.getObject(path: "/api/auth/me")
-                let friendsArr = try await ApiService.shared.getArray(path: "/api/friends")
-                let commArr = try await ApiService.shared.getArray(path: "/api/communities")
-
                 await MainActor.run {
                     self.currentUser = userObj["user"] as? [String: Any] ?? [:]
-                    self.friends = friendsArr
-                    self.communities = commArr
                     self.isLoading = false
                 }
+                // A slow community request must not hide the profile or chats.
+                async let friendResult: Void = loadFriends()
+                async let communityResult: Void = loadCommunities()
+                _ = await (friendResult, communityResult)
             } catch {
-                print("Failed to load initial data: \(error)")
+                await MainActor.run { isLoading = false; loadError = error.localizedDescription }
             }
         }
+    }
+
+    private func loadFriends() async {
+        do {
+            let result = try await ApiService.shared.getArray(path: "/api/friends")
+            await MainActor.run { friends = result }
+        } catch { await MainActor.run { loadError = error.localizedDescription } }
+    }
+
+    private func loadCommunities() async {
+        do {
+            let result = try await ApiService.shared.getArray(path: "/api/communities")
+            await MainActor.run { communities = result }
+        } catch { await MainActor.run { loadError = error.localizedDescription } }
     }
 
     private func logout() {
@@ -1627,6 +1645,7 @@ struct ProfileTabView: View {
     @State private var userPasskeys: [[String: Any]] = []
     @State private var isLoadingSecurity = false
     @State private var isSendingEmail = false
+    @State private var emailVerificationCode = ""
 
     var body: some View {
         ScrollView {
@@ -2039,6 +2058,14 @@ struct ProfileTabView: View {
                         .cornerRadius(8)
                     }
                     .disabled(isSendingEmail)
+                    TextField("6-значный код из письма", text: $emailVerificationCode)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                    Button("Подтвердить почту", action: confirmVerificationEmail)
+                        .disabled(isSendingEmail || emailVerificationCode.count != 6)
+                    if !noticeMessage.isEmpty {
+                        Text(noticeMessage).font(.footnote).foregroundColor(Theme.textSecondary)
+                    }
                 }
             }
             .padding(14)
@@ -2737,6 +2764,20 @@ struct ProfileTabView: View {
                     self.noticeMessage = error.localizedDescription
                 }
             }
+        }
+    }
+
+    private func confirmVerificationEmail() {
+        isSendingEmail = true
+        Task { @MainActor in
+            defer { isSendingEmail = false }
+            do {
+                _ = try await ApiService.shared.post(path: "/api/auth/verify-email", body: ["email": userEmail, "code": emailVerificationCode])
+                isEmailVerified = true
+                emailVerificationCode = ""
+                noticeMessage = "Почта подтверждена"
+                onUpdated()
+            } catch { noticeMessage = error.localizedDescription }
         }
     }
 

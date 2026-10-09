@@ -95,12 +95,13 @@ final class ApiService: NSObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 30
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.session = URLSession(configuration: config)
     }
 
     func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Any {
         guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         req.httpMethod = method
         req.setValue("https://vrot.fun", forHTTPHeaderField: "Origin")
         req.setValue("VrotApp-iOS/1.0", forHTTPHeaderField: "User-Agent")
